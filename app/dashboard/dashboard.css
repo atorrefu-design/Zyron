@@ -1,4 +1,17 @@
 .dashboardPanel { display: grid; gap: 22px; }
+.healthBanner { display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid; border-radius: 20px; padding: 16px; }
+.healthBanner > div { display: grid; gap: 4px; }
+.healthBanner span { color: #a9b4d5; font-size: .8rem; }
+.healthBanner.healthy { border-color: rgba(83, 213, 145, .48); background: rgba(28, 103, 68, .2); }
+.healthBanner.degraded { border-color: rgba(255, 174, 104, .48); background: rgba(118, 67, 24, .24); }
+.serviceGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.serviceCard { display: flex; align-items: center; gap: 10px; min-width: 0; border: 1px solid #2b407b; border-radius: 16px; padding: 12px; background: rgba(8, 16, 39, .6); }
+.serviceCard i { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; box-shadow: 0 0 12px currentColor; }
+.serviceCard i.good { color: #75e5ab; background: currentColor; }
+.serviceCard i.bad { color: #ff9f9f; background: currentColor; }
+.serviceCard div { min-width: 0; display: grid; gap: 3px; }
+.serviceCard strong { text-transform: capitalize; overflow-wrap: anywhere; }
+.serviceCard span { color: #94a1c8; font-size: .72rem; }
 .metricGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metricCard { border: 1px solid #2b407b; border-radius: 20px; padding: 18px; background: rgba(8, 16, 39, .72); display: grid; gap: 7px; }
 .metricCard strong { font-size: 2rem; }
@@ -23,9 +36,6 @@
 .toolStatus.available { color: #9ff1c7; background: rgba(48, 139, 92, .22); }
 .toolStatus.needs_configuration { color: #ffd89a; background: rgba(158, 108, 32, .22); }
 .toolStatus.planned { color: #b5bfe1; background: rgba(86, 100, 143, .24); }
-@media (max-width: 680px) {
-  .metricGrid, .dashboardGrid, .toolGrid { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 520px) {
-  .metricGrid, .dashboardGrid, .toolGrid { grid-template-columns: 1fr; }
-}
+@media (max-width: 760px) { .serviceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .metricGrid, .dashboardGrid, .toolGrid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .healthBanner { align-items: stretch; flex-direction: column; } .serviceGrid, .metricGrid, .dashboardGrid, .toolGrid { grid-template-columns: 1fr; } }
