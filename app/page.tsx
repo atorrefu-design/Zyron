@@ -16,6 +16,8 @@ type SpeechRecognitionInstance = {
   onerror: (() => void) | null;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
 };
+type PendingCalendarCommand = { originalMessage: string; eventId: string };
+type CalendarCommandResponse = { reply?: string; error?: string; action?: string; event?: { id: string } };
 
 declare global {
   interface Window {
@@ -28,10 +30,18 @@ const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aaró
 const CHAT_TIMEOUT_MS = 35_000;
 const quickPrompts = ["¿Qué tengo hoy?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
 
-function isCalendarCreateRequest(message: string) {
-  const normalized = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return /\b(anade|crea|apunta|agenda|programa)\b/.test(normalized)
-    && /\b(evento|cita|reunion|dentista|medico|entrenamiento|partido|llamada|visita)\b/.test(normalized);
+function normalize(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function isCalendarManagementCommand(message: string) {
+  const clean = normalize(message);
+  return /\b(anade|crea|apunta|agenda|programa|mueve|cambia|pasa|reprograma|modifica|edita|borra|elimina|cancela)\b/.test(clean)
+    && /\b(evento|cita|reunion|dentista|medico|entrenamiento|partido|llamada|visita|calendario|agenda|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,2}[:.]\d{2})\b/.test(clean);
+}
+
+function isConfirmation(message: string) {
+  return /^(si|confirmo|confirma|adelante|hazlo|correcto|vale)$/i.test(normalize(message).trim());
 }
 
 export default function Home() {
@@ -41,6 +51,7 @@ export default function Home() {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [pendingCalendar, setPendingCalendar] = useState<PendingCalendarCommand | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -98,6 +109,28 @@ export default function Home() {
     window.speechSynthesis.speak(utterance);
   }
 
+  async function runCalendarCommand(message: string, pending?: PendingCalendarCommand) {
+    const response = await fetch("/api/calendar/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: pending?.originalMessage || message,
+        eventId: pending?.eventId,
+        confirmation: Boolean(pending),
+      }),
+      cache: "no-store",
+    });
+    const data = (await response.json().catch(() => ({}))) as CalendarCommandResponse;
+    if (!response.ok) throw new Error(data.error || `Error ${response.status}`);
+    if (!data.reply?.trim()) throw new Error("Calendar respondió sin texto");
+    if (data.action === "confirmation_required" && data.event?.id) {
+      setPendingCalendar({ originalMessage: message, eventId: data.event.id });
+    } else {
+      setPendingCalendar(null);
+    }
+    return data.reply.trim();
+  }
+
   async function sendText(text: string) {
     const clean = text.trim();
     if (!clean || loading) return;
@@ -110,18 +143,24 @@ export default function Home() {
     const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
 
     try {
-      const calendarCreate = isCalendarCreateRequest(clean);
-      const response = await fetch(calendarCreate ? "/api/calendar/natural-create" : "/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(calendarCreate ? { message: clean } : { messages: nextMessages }),
-        signal: controller.signal,
-        cache: "no-store",
-      });
-      const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || `Error ${response.status}`);
-      if (!data.reply?.trim()) throw new Error("El núcleo respondió sin texto");
-      const reply = data.reply.trim();
+      let reply: string;
+      if (pendingCalendar && isConfirmation(clean)) {
+        reply = await runCalendarCommand(clean, pendingCalendar);
+      } else if (isCalendarManagementCommand(clean)) {
+        reply = await runCalendarCommand(clean);
+      } else {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: nextMessages }),
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
+        if (!response.ok) throw new Error(data.error || `Error ${response.status}`);
+        if (!data.reply?.trim()) throw new Error("El núcleo respondió sin texto");
+        reply = data.reply.trim();
+      }
       setMessages((current) => [...current, { role: "assistant", content: reply }]);
       speak(reply);
     } catch (error) {
@@ -150,6 +189,7 @@ export default function Home() {
   function clearConversation() {
     window.speechSynthesis?.cancel();
     setSpeaking(false);
+    setPendingCalendar(null);
     setMessages(initialMessages);
     sessionStorage.removeItem("zyron-session-messages");
   }
@@ -178,14 +218,14 @@ export default function Home() {
       <section className="panel">
         <div className="eyebrow">Sistema privado · Aarón</div>
         <h1>Hablar</h1>
-        <p className="subtitle">Conversación con memoria, voz, tareas y Google Calendar.</p>
+        <p className="subtitle">Conversación con memoria, voz, tareas y gestión de Google Calendar.</p>
         <div className="voiceBar">
           <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening ? "Detener escucha" : "Hablar con ZYRON"}>
             {listening ? "■" : loading ? "…" : speaking ? "◖" : "●"}
           </button>
           <div>
             <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo…" : speechSupported ? "Toca el núcleo para hablar" : "Voz no disponible"}</strong>
-            <div className="voiceHint">Puedes consultar la agenda o crear un evento con una frase natural.</div>
+            <div className="voiceHint">Puedes crear, mover o cancelar eventos. Los cambios delicados piden confirmación.</div>
           </div>
           <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
         </div>
@@ -198,7 +238,7 @@ export default function Home() {
           <div ref={chatEndRef} />
         </div>
         <form className="composer" onSubmit={sendMessage}>
-          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Añade dentista mañana a las 18:00" autoComplete="off" />
+          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Pasa el dentista de mañana a las 19:00" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
         <div className="note">Acceso exclusivo para Aarón. Las claves y la memoria permanecen en el servidor.</div>
