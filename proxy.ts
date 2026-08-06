@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyOwnerSession } from "./lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/favicon.ico"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/api/google/callback",
+  "/favicon.ico",
+];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
