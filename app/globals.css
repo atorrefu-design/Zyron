@@ -12,18 +12,28 @@ button, input { font: inherit; }
 .shell { width: min(760px, 100%); min-height: 100vh; margin: 0 auto; padding: 28px 18px 110px; }
 .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .brand { font-size: clamp(2rem, 8vw, 3.4rem); font-weight: 900; letter-spacing: .04em; }
-.status { color: #93e8bf; font-size: .95rem; text-align: right; }
+.status { margin-top: 4px; color: #93e8bf; font-size: .9rem; }
+.state-listening { color: #78e9ff; }
+.state-thinking { color: #ffd280; }
+.state-speaking { color: #c6a7ff; }
+.headerActions { display: flex; gap: 8px; }
+.ghostButton { border: 1px solid #30457f; border-radius: 14px; background: rgba(11, 20, 48, .72); color: #dbe3ff; padding: 9px 12px; }
+.ghostButton:active { transform: translateY(1px); }
 .panel { border: 1px solid #263a77; border-radius: 28px; background: rgba(16, 27, 61, .86); padding: 22px; box-shadow: 0 18px 60px rgba(0,0,0,.35); }
 .eyebrow { color: #9aa9df; letter-spacing: .16em; text-transform: uppercase; font-size: .72rem; }
 h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .subtitle { color: #b9c3e3; line-height: 1.5; }
 .voiceBar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; margin: 22px 0 8px; padding: 14px; border: 1px solid #2e4382; border-radius: 22px; background: rgba(7, 14, 34, .62); }
-.orb { width: 60px; height: 60px; border: 0; border-radius: 50%; color: white; font-size: 1.25rem; background: radial-gradient(circle at 35% 28%, #ffffff 0 8%, #6ee7ff 18%, #4b79ff 45%, #7439ef 72%, #111a45 100%); box-shadow: 0 0 28px rgba(78, 132, 255, .7); }
+.orb { width: 60px; height: 60px; border: 0; border-radius: 50%; color: white; font-size: 1.25rem; background: radial-gradient(circle at 35% 28%, #ffffff 0 8%, #6ee7ff 18%, #4b79ff 45%, #7439ef 72%, #111a45 100%); box-shadow: 0 0 28px rgba(78, 132, 255, .7); transition: transform .18s ease, box-shadow .18s ease, filter .18s ease; }
 .orb.listening { animation: pulse 1s infinite ease-in-out; box-shadow: 0 0 38px rgba(114, 232, 255, .95); }
-.orb:disabled { opacity: .45; }
+.orb.thinking { animation: breathe 1.4s infinite ease-in-out; filter: hue-rotate(25deg); }
+.orb.speaking { animation: speak 650ms infinite alternate ease-in-out; filter: hue-rotate(70deg); }
+.orb:disabled { opacity: .65; }
 @keyframes pulse { 50% { transform: scale(1.08); } }
+@keyframes breathe { 50% { transform: scale(.92); box-shadow: 0 0 18px rgba(255, 210, 128, .75); } }
+@keyframes speak { to { transform: scale(1.06) rotate(2deg); box-shadow: 0 0 34px rgba(198, 167, 255, .9); } }
 .voiceHint { margin-top: 4px; color: #8e9ac1; font-size: .78rem; }
-.voiceToggle { border: 1px solid #334a89; background: #111b38; color: white; border-radius: 14px; padding: 10px 12px; }
+.voiceToggle { border: 1px solid #334a89; background: #111b38; color: white; border-radius: 14px; padding: 10px 12px; white-space: nowrap; }
 .chat { display: grid; gap: 12px; margin: 24px 0; max-height: 46vh; overflow-y: auto; scroll-behavior: smooth; }
 .bubble { padding: 15px 17px; border-radius: 20px; line-height: 1.45; white-space: pre-wrap; }
 .user { background: #3864ca; margin-left: 12%; }
@@ -48,6 +58,8 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 
 @media (max-width: 520px) {
   .shell { padding-top: 18px; }
+  .header { align-items: flex-start; }
+  .headerActions { flex-direction: column; }
   .panel { padding: 18px; border-radius: 24px; }
   .status { font-size: .78rem; }
   .voiceBar { grid-template-columns: auto 1fr; }
