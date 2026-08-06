@@ -83,6 +83,15 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .activityBody span, .activityItem time { color: #8f9bc2; font-size: .78rem; }
 .activityItem time { text-align: right; white-space: nowrap; }
 
+.briefingCard { margin-top: 18px; border: 1px solid #2b407b; border-radius: 20px; padding: 18px; background: rgba(8, 16, 39, .68); }
+.briefingCard h2 { margin: 0 0 12px; font-size: 1.05rem; }
+.briefingText { margin: 0; white-space: pre-wrap; font: inherit; line-height: 1.6; color: #eef2ff; }
+.compactRow { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(61, 82, 139, .5); }
+.compactRow:first-of-type { border-top: 0; }
+.compactRow div { min-width: 0; display: grid; gap: 3px; }
+.compactRow strong { overflow-wrap: anywhere; }
+.compactRow small { color: #8d9ac2; }
+
 @media (max-width: 640px) {
   .taskComposer { grid-template-columns: 1fr; }
   .taskComposer button { min-height: 48px; }
@@ -93,7 +102,7 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 @media (max-width: 520px) {
   .shell { padding-top: 18px; }
   .header { align-items: flex-start; }
-  .headerActions { max-width: 50%; }
+  .headerActions { max-width: 55%; }
   .panel { padding: 18px; border-radius: 24px; }
   .status { font-size: .78rem; }
   .voiceBar { grid-template-columns: auto 1fr; }
