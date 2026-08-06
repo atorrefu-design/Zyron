@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { createTask, deleteTask, listTasks, setTaskCompleted } from "../../../lib/db";
+import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../../../lib/db";
 import { toolSummary } from "../../../lib/tools/registry";
 
 export const runtime = "nodejs";
@@ -50,6 +50,18 @@ async function storeConversation(messages: ChatMessage[]): Promise<void> {
       custom_instructions: "Guarda únicamente hechos, preferencias, objetivos, rutinas, proyectos y decisiones útiles a largo plazo sobre Aarón. No guardes saludos, texto transitorio ni secretos.",
     }),
   });
+}
+
+async function safelyRecordAction(
+  action: string,
+  summary: string,
+  metadata: Record<string, unknown> = {},
+) {
+  try {
+    await recordAction("tasks", action, summary, metadata);
+  } catch (error) {
+    console.error("ZYRON_ACTION_LOG_ERROR", error);
+  }
 }
 
 function normalize(value: string) {
@@ -138,11 +150,13 @@ async function classifyTaskIntent(message: string): Promise<TaskIntent> {
 async function executeTaskIntent(intent: TaskIntent) {
   if (intent.action === "create") {
     const task = await createTask(intent.query, null);
+    await safelyRecordAction("task_created", `Creó la tarea “${task.title}”.`, { taskId: task.id, title: task.title });
     return { reply: `Hecho. He añadido “${task.title}” a tus tareas pendientes.`, action: "task_created", tool: "tasks", task };
   }
 
   if (intent.action === "list") {
     const pending = (await listTasks()).filter((task) => !task.completed);
+    await safelyRecordAction("tasks_listed", `Consultó sus tareas pendientes: ${pending.length} encontradas.`, { count: pending.length });
     const reply = pending.length
       ? `Tienes ${pending.length} tarea${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}:\n${pending.slice(0, 12).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`
       : "No tienes tareas pendientes. Mesa limpia, motor encendido.";
@@ -169,10 +183,18 @@ async function executeTaskIntent(intent: TaskIntent) {
 
   if (intent.action === "complete") {
     const task = await setTaskCompleted(matches[0].id, true);
+    await safelyRecordAction("task_completed", `Completó la tarea “${matches[0].title}”.`, {
+      taskId: matches[0].id,
+      title: matches[0].title,
+    });
     return { reply: `Perfecto. He marcado “${matches[0].title}” como completada.`, action: "task_completed", tool: "tasks", task };
   }
 
   await deleteTask(matches[0].id);
+  await safelyRecordAction("task_deleted", `Eliminó la tarea “${matches[0].title}”.`, {
+    taskId: matches[0].id,
+    title: matches[0].title,
+  });
   return { reply: `He eliminado la tarea “${matches[0].title}”.`, action: "task_deleted", tool: "tasks", task: matches[0] };
 }
 
