@@ -26,6 +26,7 @@ declare global {
 
 const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y leer tu agenda conectada." }];
 const CHAT_TIMEOUT_MS = 35_000;
+const quickPrompts = ["¿Qué tengo hoy?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -157,6 +158,7 @@ export default function Home() {
         <div><div className="brand">ZYRON</div><div className={`status state-${coreState}`}>● {coreLabel}</div></div>
         <div className="headerActions">
           <a className="ghostButton navLink" href="/briefing">Briefing</a>
+          <a className="ghostButton navLink" href="/calendar">Calendar</a>
           <a className="ghostButton navLink" href="/dashboard">Panel</a>
           <a className="ghostButton navLink" href="/goals">Objetivos</a>
           <a className="ghostButton navLink" href="/tasks">Tareas</a>
@@ -179,6 +181,9 @@ export default function Home() {
             <div className="voiceHint">Las consultas se detienen automáticamente si el servidor tarda demasiado.</div>
           </div>
           <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
+        </div>
+        <div className="headerActions" aria-label="Consultas rápidas">
+          {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt)}>{prompt}</button>)}
         </div>
         <div className="chat" aria-live="polite">
           {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>{message.content}</div>)}
