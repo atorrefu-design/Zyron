@@ -1,10 +1,10 @@
 {
   "name": "zyron",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "sed -i 's/purpose: \"any maskable\"/purpose: \"maskable\"/' app/manifest.ts && next build",
     "start": "next start",
     "lint": "next lint"
   },
