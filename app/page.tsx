@@ -24,9 +24,15 @@ declare global {
   }
 }
 
-const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y leer tu agenda conectada." }];
+const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y gestionar tu agenda conectada." }];
 const CHAT_TIMEOUT_MS = 35_000;
 const quickPrompts = ["¿Qué tengo hoy?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
+
+function isCalendarCreateRequest(message: string) {
+  const normalized = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return /\b(anade|crea|apunta|agenda|programa)\b/.test(normalized)
+    && /\b(evento|cita|reunion|dentista|medico|entrenamiento|partido|llamada|visita)\b/.test(normalized);
+}
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -104,10 +110,11 @@ export default function Home() {
     const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
 
     try {
-      const response = await fetch("/api/chat", {
+      const calendarCreate = isCalendarCreateRequest(clean);
+      const response = await fetch(calendarCreate ? "/api/calendar/natural-create" : "/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages }),
+        body: JSON.stringify(calendarCreate ? { message: clean } : { messages: nextMessages }),
         signal: controller.signal,
         cache: "no-store",
       });
@@ -178,7 +185,7 @@ export default function Home() {
           </button>
           <div>
             <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo…" : speechSupported ? "Toca el núcleo para hablar" : "Voz no disponible"}</strong>
-            <div className="voiceHint">Las consultas se detienen automáticamente si el servidor tarda demasiado.</div>
+            <div className="voiceHint">Puedes consultar la agenda o crear un evento con una frase natural.</div>
           </div>
           <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
         </div>
@@ -191,7 +198,7 @@ export default function Home() {
           <div ref={chatEndRef} />
         </div>
         <form className="composer" onSubmit={sendMessage}>
-          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Habla o escribe a ZYRON" autoComplete="off" />
+          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Añade dentista mañana a las 18:00" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
         <div className="note">Acceso exclusivo para Aarón. Las claves y la memoria permanecen en el servidor.</div>
