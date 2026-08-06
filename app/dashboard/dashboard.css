@@ -32,6 +32,11 @@
 .toolCard { border: 1px solid #2e4382; border-radius: 16px; padding: 14px; background: rgba(7, 14, 34, .62); }
 .toolCard > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .toolCard p { color: #9aa7ce; line-height: 1.4; font-size: .84rem; margin: 10px 0 0; }
+.goalDashboardCard { color: inherit; text-decoration: none; transition: transform .16s ease, border-color .16s ease; }
+.goalDashboardCard:active { transform: translateY(1px); }
+.goalDashboardCard:hover { border-color: #5b78d5; }
+.goalMiniTrack { height: 8px; overflow: hidden; margin-top: 12px; border-radius: 999px; background: rgba(70, 88, 142, .35); }
+.goalMiniTrack i { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: linear-gradient(90deg, #5d82ff, #8c62ff); }
 .toolStatus { border-radius: 999px; padding: 4px 8px; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
 .toolStatus.available { color: #9ff1c7; background: rgba(48, 139, 92, .22); }
 .toolStatus.needs_configuration { color: #ffd89a; background: rgba(158, 108, 32, .22); }
