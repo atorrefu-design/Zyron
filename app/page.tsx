@@ -183,6 +183,7 @@ export default function Home() {
           <div className={`status state-${coreState}`}>● {coreLabel}</div>
         </div>
         <div className="headerActions">
+          <a className="ghostButton navLink" href="/tasks">Tareas</a>
           <button type="button" className="ghostButton" onClick={clearConversation}>Limpiar</button>
           <button type="button" className="ghostButton" onClick={logout}>Salir</button>
         </div>
