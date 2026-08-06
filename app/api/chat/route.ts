@@ -9,6 +9,17 @@ const AGENT_ID = "zyron";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type MemoryResult = { memory?: string };
+type TaskIntent =
+  | { action: "create"; query: string }
+  | { action: "list"; query: "" }
+  | { action: "complete"; query: string }
+  | { action: "delete"; query: string }
+  | { action: "none"; query: "" };
+
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  return apiKey ? new OpenAI({ apiKey }) : null;
+}
 
 async function searchMemories(query: string): Promise<string[]> {
   const apiKey = process.env.MEM0_API_KEY;
@@ -40,45 +51,6 @@ async function storeConversation(messages: ChatMessage[]): Promise<void> {
   });
 }
 
-function taskTitleFromMessage(message: string): string | null {
-  const patterns = [
-    /^recu[eé]rdame\s+(?:que\s+)?(.+)$/i,
-    /^apunta(?:me)?\s+(?:como\s+tarea\s+)?(.+)$/i,
-    /^a[nñ]ade\s+(?:una\s+)?tarea(?:\s+para)?\s+(.+)$/i,
-    /^crea\s+(?:una\s+)?tarea(?:\s+para)?\s+(.+)$/i,
-  ];
-  for (const pattern of patterns) {
-    const title = message.trim().match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
-    if (title && title.length <= 240) return title;
-  }
-  return null;
-}
-
-function completionQueryFromMessage(message: string): string | null {
-  const patterns = [
-    /^(?:marca|pon)\s+(?:como\s+)?(?:hecha|hecho|completada|completado)\s+(.+)$/i,
-    /^(?:he\s+)?(?:terminado|completado)\s+(.+)$/i,
-    /^completa\s+(?:la\s+tarea\s+)?(.+)$/i,
-  ];
-  for (const pattern of patterns) {
-    const query = message.trim().match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
-    if (query) return query;
-  }
-  return null;
-}
-
-function deletionQueryFromMessage(message: string): string | null {
-  const patterns = [
-    /^(?:borra|elimina|quita)\s+(?:la\s+)?tarea\s+(.+)$/i,
-    /^(?:borra|elimina|quita)\s+(?:de\s+mis\s+tareas\s+)?(.+)$/i,
-  ];
-  for (const pattern of patterns) {
-    const query = message.trim().match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
-    if (query) return query;
-  }
-  return null;
-}
-
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
@@ -88,8 +60,117 @@ function matchingTasks(query: string, tasks: Awaited<ReturnType<typeof listTasks
   return tasks.filter((task) => normalize(task.title).includes(needle) || needle.includes(normalize(task.title)));
 }
 
-function asksForTasks(message: string): boolean {
-  return /(?:qu[eé]|cu[aá]les).*(?:tareas|pendientes)|(?:tareas|pendientes).*(?:tengo|hay)/i.test(message);
+function deterministicTaskIntent(message: string): TaskIntent {
+  const clean = message.trim();
+  const createPatterns = [
+    /^recu[eé]rdame\s+(?:que\s+)?(.+)$/i,
+    /^apunta(?:me)?\s+(?:como\s+tarea\s+)?(.+)$/i,
+    /^a[nñ]ade\s+(?:una\s+)?tarea(?:\s+para)?\s+(.+)$/i,
+    /^crea\s+(?:una\s+)?tarea(?:\s+para)?\s+(.+)$/i,
+  ];
+  const completePatterns = [
+    /^(?:marca|pon)\s+(?:como\s+)?(?:hecha|hecho|completada|completado)\s+(.+)$/i,
+    /^(?:he\s+)?(?:terminado|completado)\s+(.+)$/i,
+    /^completa\s+(?:la\s+tarea\s+)?(.+)$/i,
+  ];
+  const deletePatterns = [
+    /^(?:borra|elimina|quita)\s+(?:la\s+)?tarea\s+(.+)$/i,
+    /^(?:borra|elimina|quita)\s+(?:de\s+mis\s+tareas\s+)?(.+)$/i,
+  ];
+
+  for (const pattern of createPatterns) {
+    const query = clean.match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
+    if (query && query.length <= 240) return { action: "create", query };
+  }
+  for (const pattern of completePatterns) {
+    const query = clean.match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
+    if (query) return { action: "complete", query };
+  }
+  for (const pattern of deletePatterns) {
+    const query = clean.match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
+    if (query) return { action: "delete", query };
+  }
+  if (/(?:qu[eé]|cu[aá]les).*(?:tareas|pendientes)|(?:tareas|pendientes).*(?:tengo|hay)/i.test(clean)) {
+    return { action: "list", query: "" };
+  }
+  return { action: "none", query: "" };
+}
+
+function mayContainTaskIntent(message: string) {
+  return /\b(tarea|tareas|pendiente|pendientes|apunta|apuntame|recu[eé]rdame|olvidarme|tengo que|debo|terminado|completado|hecho|borra|elimina|quita)\b/i.test(message);
+}
+
+async function classifyTaskIntent(message: string): Promise<TaskIntent> {
+  const deterministic = deterministicTaskIntent(message);
+  if (deterministic.action !== "none" || !mayContainTaskIntent(message)) return deterministic;
+
+  const openai = getOpenAI();
+  if (!openai) return deterministic;
+
+  try {
+    const response = await openai.responses.create({
+      model: process.env.OPENAI_MODEL || "gpt-5-mini",
+      instructions: [
+        "Clasifica la intención del usuario respecto a su lista de tareas.",
+        "Devuelve exclusivamente JSON válido con esta forma: {\"action\":\"create|list|complete|delete|none\",\"query\":\"texto\"}.",
+        "create: quiere guardar algo pendiente, incluso con frases como 'tengo que' o 'no quiero olvidarme'.",
+        "list: quiere consultar sus tareas.",
+        "complete: dice que una tarea ya está hecha.",
+        "delete: quiere borrar una tarea sin indicar que esté completada.",
+        "none: no pide gestionar tareas.",
+        "En query incluye solo el contenido útil de la tarea. Para list y none usa una cadena vacía.",
+      ].join("\n"),
+      input: message,
+    });
+    const parsed = JSON.parse(response.output_text.trim()) as { action?: string; query?: string };
+    if (!["create", "list", "complete", "delete", "none"].includes(parsed.action || "")) return deterministic;
+    const action = parsed.action as TaskIntent["action"];
+    const query = typeof parsed.query === "string" ? parsed.query.trim().slice(0, 240) : "";
+    if ((action === "create" || action === "complete" || action === "delete") && !query) return deterministic;
+    return { action, query } as TaskIntent;
+  } catch {
+    return deterministic;
+  }
+}
+
+async function executeTaskIntent(intent: TaskIntent) {
+  if (intent.action === "create") {
+    const task = await createTask(intent.query, null);
+    return { reply: `Hecho. He añadido “${task.title}” a tus tareas pendientes.`, action: "task_created", task };
+  }
+
+  if (intent.action === "list") {
+    const pending = (await listTasks()).filter((task) => !task.completed);
+    const reply = pending.length
+      ? `Tienes ${pending.length} tarea${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}:\n${pending.slice(0, 12).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`
+      : "No tienes tareas pendientes. Mesa limpia, motor encendido.";
+    return { reply, action: "tasks_listed", tasks: pending };
+  }
+
+  const tasks = await listTasks();
+  const candidates = intent.action === "complete" ? tasks.filter((task) => !task.completed) : tasks;
+  const matches = matchingTasks(intent.query, candidates);
+
+  if (matches.length > 1) {
+    const verb = intent.action === "complete" ? "marcar como completada" : "eliminar";
+    return {
+      reply: `He encontrado varias tareas parecidas. Dime cuál quieres ${verb}:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`,
+      action: intent.action === "complete" ? "task_completion_ambiguous" : "task_deletion_ambiguous",
+      tasks: matches.slice(0, 6),
+    };
+  }
+
+  if (matches.length === 0) {
+    return { reply: `No encuentro ninguna tarea que encaje con “${intent.query}”.`, action: "task_not_found" };
+  }
+
+  if (intent.action === "complete") {
+    const task = await setTaskCompleted(matches[0].id, true);
+    return { reply: `Perfecto. He marcado “${matches[0].title}” como completada.`, action: "task_completed", task };
+  }
+
+  await deleteTask(matches[0].id);
+  return { reply: `He eliminado la tarea “${matches[0].title}”.`, action: "task_deleted", task: matches[0] };
 }
 
 export async function POST(request: Request) {
@@ -101,57 +182,17 @@ export async function POST(request: Request) {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
     if (!lastUserMessage) return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
 
-    const taskTitle = taskTitleFromMessage(lastUserMessage);
-    if (taskTitle) {
-      const task = await createTask(taskTitle, null);
-      const reply = `Hecho. He añadido “${task.title}” a tus tareas pendientes.`;
-      void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: reply }]).catch(() => undefined);
-      return NextResponse.json({ reply, action: "task_created", task });
+    const taskIntent = await classifyTaskIntent(lastUserMessage);
+    if (taskIntent.action !== "none") {
+      const result = await executeTaskIntent(taskIntent);
+      void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: result.reply }]).catch(() => undefined);
+      return NextResponse.json(result);
     }
 
-    const completionQuery = completionQueryFromMessage(lastUserMessage);
-    if (completionQuery) {
-      const pending = (await listTasks()).filter((task) => !task.completed);
-      const matches = matchingTasks(completionQuery, pending);
-      if (matches.length === 1) {
-        const task = await setTaskCompleted(matches[0].id, true);
-        return NextResponse.json({ reply: `Perfecto. He marcado “${matches[0].title}” como completada.`, action: "task_completed", task });
-      }
-      if (matches.length > 1) {
-        const reply = `He encontrado varias tareas parecidas. Dime cuál:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`;
-        return NextResponse.json({ reply, action: "task_completion_ambiguous", tasks: matches.slice(0, 6) });
-      }
-      return NextResponse.json({ reply: `No encuentro ninguna tarea pendiente que encaje con “${completionQuery}”.`, action: "task_not_found" });
-    }
-
-    const deletionQuery = deletionQueryFromMessage(lastUserMessage);
-    if (deletionQuery) {
-      const tasks = await listTasks();
-      const matches = matchingTasks(deletionQuery, tasks);
-      if (matches.length === 1) {
-        await deleteTask(matches[0].id);
-        return NextResponse.json({ reply: `He eliminado la tarea “${matches[0].title}”.`, action: "task_deleted", task: matches[0] });
-      }
-      if (matches.length > 1) {
-        const reply = `Hay varias tareas que encajan. Dime cuál quieres eliminar:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`;
-        return NextResponse.json({ reply, action: "task_deletion_ambiguous", tasks: matches.slice(0, 6) });
-      }
-      return NextResponse.json({ reply: `No encuentro ninguna tarea que encaje con “${deletionQuery}”.`, action: "task_not_found" });
-    }
-
-    if (asksForTasks(lastUserMessage)) {
-      const pending = (await listTasks()).filter((task) => !task.completed);
-      const reply = pending.length
-        ? `Tienes ${pending.length} tarea${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}:\n${pending.slice(0, 12).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`
-        : "No tienes tareas pendientes. Mesa limpia, motor encendido.";
-      return NextResponse.json({ reply, action: "tasks_listed", tasks: pending });
-    }
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: "OPENAI_API_KEY no está configurada" }, { status: 503 });
+    const openai = getOpenAI();
+    if (!openai) return NextResponse.json({ error: "OPENAI_API_KEY no está configurada" }, { status: 503 });
     const memories = await searchMemories(lastUserMessage);
     const memoryContext = memories.length ? memories.map((memory, index) => `${index + 1}. ${memory}`).join("\n") : "No hay recuerdos relevantes recuperados para este mensaje.";
-    const openai = new OpenAI({ apiKey });
     const response = await openai.responses.create({
       model: process.env.OPENAI_MODEL || "gpt-5-mini",
       instructions: [
@@ -159,7 +200,7 @@ export async function POST(request: Request) {
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
         "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
-        "Puedes crear, consultar, completar y eliminar tareas mediante órdenes naturales de Aarón.",
+        "El motor de acciones gestiona las tareas antes de llegar a esta conversación. No afirmes haber creado, completado o eliminado una tarea si no recibes confirmación del sistema.",
         `Recuerdos relevantes:\n${memoryContext}`,
       ].join("\n\n"),
       input: messages.slice(-12).map((message) => ({ role: message.role, content: message.content })),
