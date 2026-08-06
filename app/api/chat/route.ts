@@ -1,12 +1,14 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../../../lib/db";
+import { listCalendarEvents, type ZyronCalendarEvent } from "../../../lib/google/calendar";
 import { toolSummary } from "../../../lib/tools/registry";
 
 export const runtime = "nodejs";
 
 const USER_ID = "aaron";
 const AGENT_ID = "zyron";
+const MADRID_TIME_ZONE = "Europe/Madrid";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type MemoryResult = { memory?: string };
@@ -16,6 +18,7 @@ type TaskIntent =
   | { action: "complete"; query: string }
   | { action: "delete"; query: string }
   | { action: "none"; query: "" };
+type CalendarIntent = "today" | "tomorrow" | "week" | "next" | null;
 
 function getOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -56,9 +59,10 @@ async function safelyRecordAction(
   action: string,
   summary: string,
   metadata: Record<string, unknown> = {},
+  tool = "tasks",
 ) {
   try {
-    await recordAction("tasks", action, summary, metadata);
+    await recordAction(tool, action, summary, metadata);
   } catch (error) {
     console.error("ZYRON_ACTION_LOG_ERROR", error);
   }
@@ -71,6 +75,74 @@ function normalize(value: string) {
 function matchingTasks(query: string, tasks: Awaited<ReturnType<typeof listTasks>>) {
   const needle = normalize(query);
   return tasks.filter((task) => normalize(task.title).includes(needle) || needle.includes(normalize(task.title)));
+}
+
+function detectCalendarIntent(message: string): CalendarIntent {
+  const clean = normalize(message);
+  const asksCalendar = /\b(agenda|calendario|evento|eventos|reunion|reuniones|cita|citas|que tengo|proximo compromiso)\b/.test(clean);
+  if (!asksCalendar) return null;
+  if (/\bmanana\b/.test(clean)) return "tomorrow";
+  if (/\b(esta semana|proximos dias|semana)\b/.test(clean)) return "week";
+  if (/\b(proximo|siguiente|ahora)\b/.test(clean)) return "next";
+  return "today";
+}
+
+function madridDateKey(value: Date | string) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: MADRID_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function addDaysToKey(key: string, days: number) {
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12));
+  return madridDateKey(date);
+}
+
+function formatCalendarEvent(event: ZyronCalendarEvent) {
+  if (event.allDay) return `Todo el día · ${event.title}${event.location ? ` · ${event.location}` : ""}`;
+  const start = new Intl.DateTimeFormat("es-ES", {
+    timeZone: MADRID_TIME_ZONE,
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(event.start));
+  return `${start} · ${event.title}${event.location ? ` · ${event.location}` : ""}`;
+}
+
+async function executeCalendarIntent(intent: Exclude<CalendarIntent, null>) {
+  const now = new Date();
+  const events = await listCalendarEvents({
+    timeMin: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+    timeMax: new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000),
+    maxResults: 50,
+  });
+  const todayKey = madridDateKey(now);
+  const targetKey = intent === "tomorrow" ? addDaysToKey(todayKey, 1) : todayKey;
+
+  let selected = events;
+  let label = "los próximos siete días";
+  if (intent === "today" || intent === "tomorrow") {
+    selected = events.filter((event) => madridDateKey(event.start) === targetKey);
+    label = intent === "today" ? "hoy" : "mañana";
+  } else if (intent === "next") {
+    selected = events.filter((event) => event.allDay || new Date(event.end).getTime() >= now.getTime()).slice(0, 1);
+    label = "tu próximo evento";
+  } else {
+    selected = events.filter((event) => madridDateKey(event.start) >= todayKey);
+  }
+
+  await safelyRecordAction("calendar_read", `Consultó la agenda para ${label}: ${selected.length} eventos.`, { intent, count: selected.length }, "calendar");
+  const reply = selected.length
+    ? `${intent === "next" ? "Tu próximo evento es:" : `Tienes ${selected.length} evento${selected.length === 1 ? "" : "s"} ${label}:`}\n${selected.slice(0, 12).map((event, index) => `${index + 1}. ${formatCalendarEvent(event)}`).join("\n")}`
+    : `No tienes eventos en Google Calendar ${label}.`;
+  return { reply, action: "calendar_read", tool: "calendar", events: selected };
 }
 
 function deterministicTaskIntent(message: string): TaskIntent {
@@ -207,6 +279,22 @@ export async function POST(request: Request) {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
     if (!lastUserMessage) return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
 
+    const calendarIntent = detectCalendarIntent(lastUserMessage);
+    if (calendarIntent) {
+      try {
+        const result = await executeCalendarIntent(calendarIntent);
+        void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: result.reply }]).catch(() => undefined);
+        return NextResponse.json(result);
+      } catch (error) {
+        console.error("ZYRON_CALENDAR_CHAT_ERROR", error);
+        return NextResponse.json({
+          reply: "Google Calendar está conectado, pero no he podido leer la agenda. Abre el Panel para comprobar si falta volver a autorizar el permiso de calendario.",
+          action: "calendar_read_failed",
+          tool: "calendar",
+        });
+      }
+    }
+
     const taskIntent = await classifyTaskIntent(lastUserMessage);
     if (taskIntent.action !== "none") {
       const result = await executeTaskIntent(taskIntent);
@@ -225,7 +313,7 @@ export async function POST(request: Request) {
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
         "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
-        "El motor de acciones gestiona las tareas antes de llegar a esta conversación. No afirmes haber creado, completado o eliminado una tarea si no recibes confirmación del sistema.",
+        "El motor de acciones gestiona las tareas y consulta Google Calendar antes de llegar a esta conversación. No afirmes haber ejecutado acciones sin confirmación del sistema.",
         `Herramientas disponibles:\n${toolSummary()}`,
         `Recuerdos relevantes:\n${memoryContext}`,
       ].join("\n\n"),
