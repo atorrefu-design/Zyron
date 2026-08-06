@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assignTaskToGoal, createTask, deleteTask, listTasks, setTaskCompleted } from "../../../lib/db";
+import { assignTaskToGoal, createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../../../lib/db";
+import { inferGoalForTask } from "../../../lib/tools/goal-router";
 
 export const runtime = "nodejs";
 
@@ -23,17 +24,36 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { title?: unknown; dueAt?: unknown; goalId?: unknown };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const dueAt = typeof body.dueAt === "string" && body.dueAt ? body.dueAt : null;
-    const goalId = body.goalId === null || body.goalId === "" || body.goalId === undefined ? null : parseId(body.goalId);
+    const explicitGoal = body.goalId !== null && body.goalId !== "" && body.goalId !== undefined;
+    const parsedGoalId = explicitGoal ? parseId(body.goalId) : null;
 
     if (!title || title.length > 240) {
       return NextResponse.json({ error: "La tarea debe tener entre 1 y 240 caracteres" }, { status: 400 });
     }
-    if (body.goalId !== null && body.goalId !== "" && body.goalId !== undefined && !goalId) {
+    if (explicitGoal && !parsedGoalId) {
       return NextResponse.json({ error: "Objetivo no válido" }, { status: 400 });
     }
 
+    const inferredGoal = explicitGoal ? null : await inferGoalForTask(title);
+    const goalId = parsedGoalId ?? inferredGoal?.id ?? null;
     const task = await createTask(title, dueAt, goalId);
-    return NextResponse.json({ task }, { status: 201 });
+
+    await recordAction("tasks", "task_created", `Creó la tarea “${task.title}”.`, {
+      taskId: task.id,
+      title: task.title,
+      goalId: task.goal_id,
+      goalAssignment: explicitGoal ? "manual" : inferredGoal ? "automatic" : "none",
+      goalSlug: inferredGoal?.slug ?? null,
+    }).catch((error) => console.error("task_action_log_error", error));
+
+    return NextResponse.json(
+      {
+        task,
+        goal: inferredGoal ? { id: inferredGoal.id, name: inferredGoal.name, slug: inferredGoal.slug, icon: inferredGoal.icon } : null,
+        goalAssignment: explicitGoal ? "manual" : inferredGoal ? "automatic" : "none",
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("tasks_post_error", error);
     return NextResponse.json({ error: "No se pudo crear la tarea" }, { status: 500 });
