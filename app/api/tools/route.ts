@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
-import { ZYRON_TOOLS } from "../../../lib/tools/registry";
+import { getZyronTools } from "../../../lib/tools/registry";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const tools = Object.values(getZyronTools());
+  const summary = tools.reduce(
+    (acc, tool) => {
+      acc[tool.status] += 1;
+      return acc;
+    },
+    { available: 0, needs_configuration: 0, planned: 0 },
+  );
+
   return NextResponse.json(
     {
-      tools: Object.values(ZYRON_TOOLS),
-      count: Object.keys(ZYRON_TOOLS).length,
+      tools,
+      count: tools.length,
+      summary,
     },
     {
       headers: {
