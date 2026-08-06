@@ -16,7 +16,17 @@ type CalendarEvent = {
 type EventsResponse = {
   events?: CalendarEvent[];
   error?: string;
+  code?: string;
 };
+
+type GoogleStatus = {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  scope: string | null;
+};
+
+const WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
 function localInputValue(date: Date) {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -46,9 +56,11 @@ export default function CalendarPage() {
   const initialEnd = new Date(initialStart.getTime() + 60 * 60 * 1000);
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [success, setSuccess] = useState("");
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(localInputValue(initialStart));
@@ -56,13 +68,30 @@ export default function CalendarPage() {
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
 
+  const canWrite = Boolean(googleStatus?.scope?.includes(WRITE_SCOPE));
+  const needsAuthorization = errorCode === "calendar_scope_missing" || errorCode === "calendar_write_scope_missing" || (googleStatus?.connected && !canWrite);
+
+  async function loadStatus() {
+    try {
+      const response = await fetch("/api/google/status", { cache: "no-store" });
+      const data = (await response.json()) as GoogleStatus;
+      if (response.ok) setGoogleStatus(data);
+    } catch {
+      setGoogleStatus(null);
+    }
+  }
+
   async function loadEvents() {
     setLoading(true);
     setError("");
+    setErrorCode("");
     try {
       const response = await fetch("/api/calendar/events?days=14&limit=30", { cache: "no-store" });
       const data = (await response.json()) as EventsResponse;
-      if (!response.ok) throw new Error(data.error || "No he podido leer Google Calendar.");
+      if (!response.ok) {
+        setErrorCode(data.code || "");
+        throw new Error(data.error || "No he podido leer Google Calendar.");
+      }
       setEvents(data.events || []);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No he podido leer Google Calendar.");
@@ -72,13 +101,14 @@ export default function CalendarPage() {
   }
 
   useEffect(() => {
-    void loadEvents();
+    void Promise.all([loadStatus(), loadEvents()]);
   }, []);
 
   async function createEvent(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
     setError("");
+    setErrorCode("");
     setSuccess("");
     try {
       const response = await fetch("/api/calendar/events/create", {
@@ -93,13 +123,16 @@ export default function CalendarPage() {
           timeZone: "Europe/Madrid",
         }),
       });
-      const data = (await response.json()) as { error?: string; event?: CalendarEvent };
-      if (!response.ok) throw new Error(data.error || "No se pudo crear el evento.");
+      const data = (await response.json()) as { error?: string; code?: string; event?: CalendarEvent };
+      if (!response.ok) {
+        setErrorCode(data.code || "");
+        throw new Error(data.error || "No se pudo crear el evento.");
+      }
       setSuccess(`Evento “${data.event?.title || title}” creado en Google Calendar.`);
       setTitle("");
       setLocation("");
       setDescription("");
-      await loadEvents();
+      await Promise.all([loadStatus(), loadEvents()]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo crear el evento.");
     } finally {
@@ -121,14 +154,29 @@ export default function CalendarPage() {
       <section className="panel calendarWorkspace">
         <div><div className="eyebrow">Agenda conectada</div><h1>Calendario</h1><p className="subtitle">Consulta tus próximos eventos y crea nuevos compromisos sin salir de ZYRON.</p></div>
 
-        {error && <div className="taskError">{error}</div>}
+        {googleStatus?.connected && (
+          <div className={`healthBanner ${canWrite ? "healthy" : "degraded"}`}>
+            <div>
+              <strong>{canWrite ? "Google Calendar listo para leer y crear eventos" : "Calendar conectado con permisos limitados"}</strong>
+              <span>{googleStatus.email || "Cuenta de Google conectada"}</span>
+            </div>
+            {!canWrite && <a className="ghostButton navLink" href="/api/google/connect">Autorizar creación</a>}
+          </div>
+        )}
+
+        {needsAuthorization && (
+          <div className="taskError">
+            Falta autorizar el permiso para gestionar eventos. <a href="/api/google/connect">Conectar de nuevo con Google</a>.
+          </div>
+        )}
+        {error && !needsAuthorization && <div className="taskError">{error}</div>}
         {success && <div className="calendarSuccess">{success}</div>}
 
         <div className="calendarGrid">
           <section className="calendarBlock">
             <div className="calendarBlockHeader"><h2>Próximos 14 días</h2><button className="ghostButton" type="button" onClick={() => void loadEvents()} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button></div>
             {loading && <div className="taskEmpty">Consultando Google Calendar…</div>}
-            {!loading && events.length === 0 && <div className="taskEmpty">No hay eventos próximos.</div>}
+            {!loading && events.length === 0 && !error && <div className="taskEmpty">No hay eventos próximos.</div>}
             {!loading && events.map((item) => (
               <a className="calendarEvent" href={item.htmlLink || undefined} target={item.htmlLink ? "_blank" : undefined} rel="noreferrer" key={item.id}>
                 <div className="calendarEventTime">{formatEvent(item)}</div>
@@ -148,9 +196,9 @@ export default function CalendarPage() {
               </div>
               <label>Ubicación<input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Opcional" /></label>
               <label>Notas<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} placeholder="Opcional" /></label>
-              <button type="submit" disabled={saving || !title.trim()}>{saving ? "Creando…" : "Crear en Google Calendar"}</button>
+              <button type="submit" disabled={saving || !title.trim() || !canWrite}>{saving ? "Creando…" : canWrite ? "Crear en Google Calendar" : "Autoriza Google para crear"}</button>
             </form>
-            <p className="note">La primera creación puede requerir volver a autorizar Google con permiso para gestionar eventos.</p>
+            {!canWrite && <p className="note">Pulsa “Autorizar creación” una sola vez para conceder el nuevo permiso.</p>}
           </section>
         </div>
       </section>
