@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { createTask, deleteTask, listTasks, setTaskCompleted } from "../../../lib/db";
+import { toolSummary } from "../../../lib/tools/registry";
 
 export const runtime = "nodejs";
 
@@ -119,6 +120,7 @@ async function classifyTaskIntent(message: string): Promise<TaskIntent> {
         "delete: quiere borrar una tarea sin indicar que esté completada.",
         "none: no pide gestionar tareas.",
         "En query incluye solo el contenido útil de la tarea. Para list y none usa una cadena vacía.",
+        `Herramientas registradas:\n${toolSummary()}`,
       ].join("\n"),
       input: message,
     });
@@ -136,7 +138,7 @@ async function classifyTaskIntent(message: string): Promise<TaskIntent> {
 async function executeTaskIntent(intent: TaskIntent) {
   if (intent.action === "create") {
     const task = await createTask(intent.query, null);
-    return { reply: `Hecho. He añadido “${task.title}” a tus tareas pendientes.`, action: "task_created", task };
+    return { reply: `Hecho. He añadido “${task.title}” a tus tareas pendientes.`, action: "task_created", tool: "tasks", task };
   }
 
   if (intent.action === "list") {
@@ -144,7 +146,7 @@ async function executeTaskIntent(intent: TaskIntent) {
     const reply = pending.length
       ? `Tienes ${pending.length} tarea${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}:\n${pending.slice(0, 12).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`
       : "No tienes tareas pendientes. Mesa limpia, motor encendido.";
-    return { reply, action: "tasks_listed", tasks: pending };
+    return { reply, action: "tasks_listed", tool: "tasks", tasks: pending };
   }
 
   const tasks = await listTasks();
@@ -156,21 +158,22 @@ async function executeTaskIntent(intent: TaskIntent) {
     return {
       reply: `He encontrado varias tareas parecidas. Dime cuál quieres ${verb}:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`,
       action: intent.action === "complete" ? "task_completion_ambiguous" : "task_deletion_ambiguous",
+      tool: "tasks",
       tasks: matches.slice(0, 6),
     };
   }
 
   if (matches.length === 0) {
-    return { reply: `No encuentro ninguna tarea que encaje con “${intent.query}”.`, action: "task_not_found" };
+    return { reply: `No encuentro ninguna tarea que encaje con “${intent.query}”.`, action: "task_not_found", tool: "tasks" };
   }
 
   if (intent.action === "complete") {
     const task = await setTaskCompleted(matches[0].id, true);
-    return { reply: `Perfecto. He marcado “${matches[0].title}” como completada.`, action: "task_completed", task };
+    return { reply: `Perfecto. He marcado “${matches[0].title}” como completada.`, action: "task_completed", tool: "tasks", task };
   }
 
   await deleteTask(matches[0].id);
-  return { reply: `He eliminado la tarea “${matches[0].title}”.`, action: "task_deleted", task: matches[0] };
+  return { reply: `He eliminado la tarea “${matches[0].title}”.`, action: "task_deleted", tool: "tasks", task: matches[0] };
 }
 
 export async function POST(request: Request) {
@@ -201,13 +204,14 @@ export async function POST(request: Request) {
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
         "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
         "El motor de acciones gestiona las tareas antes de llegar a esta conversación. No afirmes haber creado, completado o eliminado una tarea si no recibes confirmación del sistema.",
+        `Herramientas disponibles:\n${toolSummary()}`,
         `Recuerdos relevantes:\n${memoryContext}`,
       ].join("\n\n"),
       input: messages.slice(-12).map((message) => ({ role: message.role, content: message.content })),
     });
     const reply = response.output_text?.trim() || "No he podido construir una respuesta útil.";
     void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: reply }]).catch(() => undefined);
-    return NextResponse.json({ reply, memoriesUsed: memories.length });
+    return NextResponse.json({ reply, tool: memories.length ? "memory" : "conversation", memoriesUsed: memories.length });
   } catch (error) {
     console.error("ZYRON_CHAT_ERROR", error);
     return NextResponse.json({ error: "Error interno del núcleo de ZYRON" }, { status: 500 });
