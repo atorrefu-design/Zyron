@@ -1,0 +1,31 @@
+.dashboardPanel { display: grid; gap: 22px; }
+.metricGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.metricCard { border: 1px solid #2b407b; border-radius: 20px; padding: 18px; background: rgba(8, 16, 39, .72); display: grid; gap: 7px; }
+.metricCard strong { font-size: 2rem; }
+.metricCard span { color: #9aa7ce; font-size: .84rem; }
+.dashboardGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.dashboardBlock { border: 1px solid #2b407b; border-radius: 20px; padding: 16px; background: rgba(8, 16, 39, .58); }
+.blockHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.blockHeader h2 { margin: 0; font-size: 1.05rem; }
+.blockHeader a { color: #9db2ff; font-size: .82rem; }
+.compactRow { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(61, 82, 139, .5); }
+.compactRow:first-of-type { border-top: 0; }
+.compactRow div { min-width: 0; display: grid; gap: 3px; }
+.compactRow strong { overflow-wrap: anywhere; }
+.compactRow small { color: #8d9ac2; }
+.mutedBox { color: #8d9ac2; padding: 14px 0; }
+.toolsBlock { display: grid; gap: 4px; }
+.toolGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.toolCard { border: 1px solid #2e4382; border-radius: 16px; padding: 14px; background: rgba(7, 14, 34, .62); }
+.toolCard > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.toolCard p { color: #9aa7ce; line-height: 1.4; font-size: .84rem; margin: 10px 0 0; }
+.toolStatus { border-radius: 999px; padding: 4px 8px; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+.toolStatus.available { color: #9ff1c7; background: rgba(48, 139, 92, .22); }
+.toolStatus.needs_configuration { color: #ffd89a; background: rgba(158, 108, 32, .22); }
+.toolStatus.planned { color: #b5bfe1; background: rgba(86, 100, 143, .24); }
+@media (max-width: 680px) {
+  .metricGrid, .dashboardGrid, .toolGrid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 520px) {
+  .metricGrid, .dashboardGrid, .toolGrid { grid-template-columns: 1fr; }
+}
