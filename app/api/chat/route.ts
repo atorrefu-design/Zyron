@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { createTask, listTasks } from "../../../lib/db";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,27 @@ async function storeConversation(messages: ChatMessage[]): Promise<void> {
   });
 }
 
+function taskTitleFromMessage(message: string): string | null {
+  const patterns = [
+    /^recu[eé]rdame\s+(?:que\s+)?(.+)$/i,
+    /^apunta(?:me)?\s+(?:como\s+tarea\s+)?(.+)$/i,
+    /^a[nñ]ade\s+(?:una\s+)?tarea(?:\s+para)?\s+(.+)$/i,
+    /^crea\s+(?:una\s+)?tarea(?:\s+para)?\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.trim().match(pattern);
+    const title = match?.[1]?.trim().replace(/[.!?]+$/, "");
+    if (title && title.length <= 240) return title;
+  }
+
+  return null;
+}
+
+function asksForTasks(message: string): boolean {
+  return /(?:qu[eé]|cu[aá]les).*(?:tareas|pendientes)|(?:tareas|pendientes).*(?:tengo|hay)/i.test(message);
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { messages?: ChatMessage[] };
@@ -66,6 +88,28 @@ export async function POST(request: Request) {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
     if (!lastUserMessage) {
       return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
+    }
+
+    const taskTitle = taskTitleFromMessage(lastUserMessage);
+    if (taskTitle) {
+      const task = await createTask(taskTitle, null);
+      const reply = `Hecho. He añadido “${task.title}” a tus tareas pendientes.`;
+      void storeConversation([
+        { role: "user", content: lastUserMessage },
+        { role: "assistant", content: reply },
+      ]).catch(() => undefined);
+      return NextResponse.json({ reply, action: "task_created", task });
+    }
+
+    if (asksForTasks(lastUserMessage)) {
+      const pending = (await listTasks()).filter((task) => !task.completed);
+      const reply = pending.length
+        ? `Tienes ${pending.length} tarea${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}:\n${pending
+            .slice(0, 12)
+            .map((task, index) => `${index + 1}. ${task.title}`)
+            .join("\n")}`
+        : "No tienes tareas pendientes. Mesa limpia, motor encendido.";
+      return NextResponse.json({ reply, action: "tasks_listed", tasks: pending });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -86,6 +130,7 @@ export async function POST(request: Request) {
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propone el siguiente paso útil.",
         "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
+        "Puedes crear tareas cuando Aarón diga 'recuérdame', 'apunta', 'añade una tarea' o 'crea una tarea'.",
         `Recuerdos relevantes:\n${memoryContext}`,
       ].join("\n\n"),
       input: messages.slice(-12).map((message) => ({
