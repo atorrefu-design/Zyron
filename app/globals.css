@@ -17,7 +17,7 @@ a { color: inherit; }
 .state-listening { color: #78e9ff; }
 .state-thinking { color: #ffd280; }
 .state-speaking { color: #c6a7ff; }
-.headerActions { display: flex; gap: 8px; }
+.headerActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .ghostButton { border: 1px solid #30457f; border-radius: 14px; background: rgba(11, 20, 48, .72); color: #dbe3ff; padding: 9px 12px; text-decoration: none; }
 .ghostButton:active { transform: translateY(1px); }
 .navLink { display: inline-flex; align-items: center; justify-content: center; }
@@ -58,13 +58,13 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .login-card button:disabled { opacity: .55; }
 .login-error { color: #ff9f9f !important; margin: 0 !important; font-size: .9rem; }
 
-.tasksPanel { min-height: 520px; }
+.tasksPanel, .activityPanel { min-height: 520px; }
 .taskComposer { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(190px, .8fr) auto; gap: 10px; margin: 24px 0; }
 .taskComposer input { min-width: 0; border: 1px solid #314783; border-radius: 16px; background: #091126; color: white; padding: 14px; }
 .taskComposer button { border: 0; border-radius: 16px; padding: 0 18px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
 .taskComposer button:disabled { opacity: .5; }
 .taskError { color: #ffabab; background: rgba(107, 25, 40, .28); border: 1px solid rgba(255, 125, 145, .28); border-radius: 14px; padding: 12px 14px; }
-.taskList { display: grid; gap: 10px; }
+.taskList, .activityList { display: grid; gap: 10px; }
 .taskItem { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border: 1px solid #2b407b; border-radius: 18px; padding: 13px; background: rgba(8, 16, 39, .72); }
 .taskItem.done { opacity: .58; }
 .taskItem.done .taskBody strong { text-decoration: line-through; }
@@ -75,15 +75,25 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .taskDelete { width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: #ff9eab; font-size: 1.5rem; }
 .taskEmpty { border: 1px dashed #30457f; border-radius: 18px; padding: 28px; color: #8f9bc2; text-align: center; }
 
+.activityList { margin-top: 24px; }
+.activityItem { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border: 1px solid #2b407b; border-radius: 18px; padding: 14px; background: rgba(8, 16, 39, .72); }
+.activityIcon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: #122148; color: #9ff1c7; font-weight: 900; }
+.activityBody { min-width: 0; display: grid; gap: 4px; }
+.activityBody strong { overflow-wrap: anywhere; }
+.activityBody span, .activityItem time { color: #8f9bc2; font-size: .78rem; }
+.activityItem time { text-align: right; white-space: nowrap; }
+
 @media (max-width: 640px) {
   .taskComposer { grid-template-columns: 1fr; }
   .taskComposer button { min-height: 48px; }
+  .activityItem { grid-template-columns: auto 1fr; }
+  .activityItem time { grid-column: 2; text-align: left; }
 }
 
 @media (max-width: 520px) {
   .shell { padding-top: 18px; }
   .header { align-items: flex-start; }
-  .headerActions { flex-direction: column; }
+  .headerActions { max-width: 50%; }
   .panel { padding: 18px; border-radius: 24px; }
   .status { font-size: .78rem; }
   .voiceBar { grid-template-columns: auto 1fr; }
