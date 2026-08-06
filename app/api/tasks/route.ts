@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createTask, deleteTask, listTasks, setTaskCompleted } from "../../../lib/db";
+import { assignTaskToGoal, createTask, deleteTask, listTasks, setTaskCompleted } from "../../../lib/db";
 
 export const runtime = "nodejs";
 
@@ -20,15 +20,19 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { title?: unknown; dueAt?: unknown };
+    const body = (await request.json()) as { title?: unknown; dueAt?: unknown; goalId?: unknown };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const dueAt = typeof body.dueAt === "string" && body.dueAt ? body.dueAt : null;
+    const goalId = body.goalId === null || body.goalId === "" || body.goalId === undefined ? null : parseId(body.goalId);
 
     if (!title || title.length > 240) {
       return NextResponse.json({ error: "La tarea debe tener entre 1 y 240 caracteres" }, { status: 400 });
     }
+    if (body.goalId !== null && body.goalId !== "" && body.goalId !== undefined && !goalId) {
+      return NextResponse.json({ error: "Objetivo no válido" }, { status: 400 });
+    }
 
-    const task = await createTask(title, dueAt);
+    const task = await createTask(title, dueAt, goalId);
     return NextResponse.json({ task }, { status: 201 });
   } catch (error) {
     console.error("tasks_post_error", error);
@@ -38,15 +42,24 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const body = (await request.json()) as { id?: unknown; completed?: unknown };
+    const body = (await request.json()) as { id?: unknown; completed?: unknown; goalId?: unknown };
     const id = parseId(body.id);
-    if (!id || typeof body.completed !== "boolean") {
-      return NextResponse.json({ error: "Petición no válida" }, { status: 400 });
+    if (!id) return NextResponse.json({ error: "Petición no válida" }, { status: 400 });
+
+    if (typeof body.completed === "boolean") {
+      const task = await setTaskCompleted(id, body.completed);
+      if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+      return NextResponse.json({ task });
     }
 
-    const task = await setTaskCompleted(id, body.completed);
-    if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
-    return NextResponse.json({ task });
+    if (body.goalId === null || body.goalId === "" || parseId(body.goalId)) {
+      const goalId = body.goalId === null || body.goalId === "" ? null : parseId(body.goalId);
+      const task = await assignTaskToGoal(id, goalId);
+      if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+      return NextResponse.json({ task });
+    }
+
+    return NextResponse.json({ error: "Petición no válida" }, { status: 400 });
   } catch (error) {
     console.error("tasks_patch_error", error);
     return NextResponse.json({ error: "No se pudo actualizar la tarea" }, { status: 500 });
