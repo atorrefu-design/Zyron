@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
 type StoredGoogleConnection = {
   provider: "google";
