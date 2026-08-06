@@ -31,6 +31,7 @@ export function unavailableCapabilityReply(message: string) {
     tasks: "Tareas",
     memory: "Memoria",
     conversation: "Conversación",
+    planner: "Planificador",
     calendar: "Google Calendar",
     gmail: "Gmail",
     maps: "Mapas y rutas",
