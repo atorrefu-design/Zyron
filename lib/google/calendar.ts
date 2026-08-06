@@ -12,7 +12,7 @@ export type ZyronCalendarEvent = {
   htmlLink: string | null;
 };
 
-export type CreateCalendarEventInput = {
+export type CalendarEventInput = {
   title: string;
   start: string;
   end: string;
@@ -21,6 +21,8 @@ export type CreateCalendarEventInput = {
   description?: string | null;
   timeZone?: string;
 };
+
+export type CreateCalendarEventInput = CalendarEventInput;
 
 type GoogleCalendarEvent = {
   id?: string;
@@ -43,6 +45,20 @@ function mapEvent(event: GoogleCalendarEvent): ZyronCalendarEvent {
     allDay,
     location: event.location?.trim() || null,
     htmlLink: event.htmlLink || null,
+  };
+}
+
+function eventPayload(input: CalendarEventInput) {
+  const title = input.title.trim();
+  if (!title) throw new Error("calendar_title_required");
+  const allDay = Boolean(input.allDay);
+  const timeZone = input.timeZone || "Europe/Madrid";
+  return {
+    summary: title,
+    description: input.description?.trim() || undefined,
+    location: input.location?.trim() || undefined,
+    start: allDay ? { date: input.start } : { dateTime: input.start, timeZone },
+    end: allDay ? { date: input.end } : { dateTime: input.end, timeZone },
   };
 }
 
@@ -79,19 +95,6 @@ export async function listCalendarEvents(options?: {
 }
 
 export async function createCalendarEvent(input: CreateCalendarEventInput): Promise<ZyronCalendarEvent> {
-  const title = input.title.trim();
-  if (!title) throw new Error("calendar_title_required");
-
-  const allDay = Boolean(input.allDay);
-  const timeZone = input.timeZone || "Europe/Madrid";
-  const payload = {
-    summary: title,
-    description: input.description?.trim() || undefined,
-    location: input.location?.trim() || undefined,
-    start: allDay ? { date: input.start } : { dateTime: input.start, timeZone },
-    end: allDay ? { date: input.end } : { dateTime: input.end, timeZone },
-  };
-
   const accessToken = await getGoogleAccessToken();
   const response = await fetch(CALENDAR_EVENTS_URL, {
     method: "POST",
@@ -99,7 +102,7 @@ export async function createCalendarEvent(input: CreateCalendarEventInput): Prom
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(eventPayload(input)),
     cache: "no-store",
   });
 
@@ -110,6 +113,29 @@ export async function createCalendarEvent(input: CreateCalendarEventInput): Prom
 
   const event = (await response.json()) as GoogleCalendarEvent;
   if (!event.id || !event.start || !event.end) throw new Error("google_calendar_create_invalid_response");
+  return mapEvent(event);
+}
+
+export async function updateCalendarEvent(eventId: string, input: CalendarEventInput): Promise<ZyronCalendarEvent> {
+  const cleanId = eventId.trim();
+  if (!cleanId) throw new Error("calendar_event_id_required");
+  const accessToken = await getGoogleAccessToken();
+  const response = await fetch(`${CALENDAR_EVENTS_URL}/${encodeURIComponent(cleanId)}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(eventPayload(input)),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`google_calendar_update_${response.status}:${detail.slice(0, 300)}`);
+  }
+  const event = (await response.json()) as GoogleCalendarEvent;
+  if (!event.id || !event.start || !event.end) throw new Error("google_calendar_update_invalid_response");
   return mapEvent(event);
 }
 
