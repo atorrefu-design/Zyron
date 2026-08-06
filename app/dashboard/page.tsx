@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import "./dashboard.css";
 
 type DashboardData = {
   summary: {
@@ -48,9 +49,11 @@ export default function DashboardPage() {
       </header>
 
       <section className="panel dashboardPanel">
-        <div className="eyebrow">Centro de operaciones</div>
-        <h1>Estado general</h1>
-        <p className="subtitle">Una vista compacta de lo que ZYRON tiene pendiente, ha ejecutado y puede utilizar.</p>
+        <div>
+          <div className="eyebrow">Centro de operaciones</div>
+          <h1>Estado general</h1>
+          <p className="subtitle">Una vista compacta de lo que ZYRON tiene pendiente, ha ejecutado y puede utilizar.</p>
+        </div>
 
         {error && <div className="taskError">{error}</div>}
         {!data && !error && <div className="taskEmpty">Cargando sistemas…</div>}
