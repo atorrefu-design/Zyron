@@ -2,6 +2,7 @@ export type ZyronToolName =
   | "tasks"
   | "memory"
   | "conversation"
+  | "planner"
   | "calendar"
   | "gmail"
   | "maps"
@@ -24,6 +25,8 @@ function configured(...variables: string[]) {
 }
 
 export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
+  const databaseReady = configured("DATABASE_URL", "POSTGRES_URL");
+
   return {
     tasks: {
       name: "tasks",
@@ -31,7 +34,7 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
       permissions: ["owner_session", "database"],
       canWrite: true,
       requiresConfirmation: false,
-      status: configured("DATABASE_URL", "POSTGRES_URL") ? "available" : "needs_configuration",
+      status: databaseReady ? "available" : "needs_configuration",
       configurationHint: "Configurar DATABASE_URL o POSTGRES_URL.",
     },
     memory: {
@@ -51,6 +54,15 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
       requiresConfirmation: false,
       status: configured("OPENAI_API_KEY") ? "available" : "needs_configuration",
       configurationHint: "Configurar OPENAI_API_KEY.",
+    },
+    planner: {
+      name: "planner",
+      description: "Ordena las tareas pendientes y prepara un plan práctico del día.",
+      permissions: ["owner_session", "database"],
+      canWrite: false,
+      requiresConfirmation: false,
+      status: databaseReady ? "available" : "needs_configuration",
+      configurationHint: "Configurar DATABASE_URL o POSTGRES_URL.",
     },
     calendar: {
       name: "calendar",
