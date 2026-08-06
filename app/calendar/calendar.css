@@ -1,0 +1,20 @@
+.calendarWorkspace { display: grid; gap: 20px; }
+.calendarGrid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 16px; align-items: start; }
+.calendarBlock { border: 1px solid #2b407b; border-radius: 20px; padding: 18px; background: rgba(8, 16, 39, .66); display: grid; gap: 14px; }
+.calendarBlock h2 { margin: 0; font-size: 1.1rem; }
+.calendarBlockHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.calendarEvent { display: grid; gap: 5px; padding: 14px 0; border-top: 1px solid rgba(61, 82, 139, .5); color: inherit; text-decoration: none; }
+.calendarEvent:first-of-type { border-top: 0; }
+.calendarEvent:hover strong { color: #b9c8ff; }
+.calendarEventTime { color: #8fa2da; font-size: .78rem; text-transform: capitalize; }
+.calendarEvent span { color: #93a0c8; font-size: .84rem; }
+.calendarForm { display: grid; gap: 13px; }
+.calendarForm label { display: grid; gap: 6px; color: #b7c2e4; font-size: .82rem; }
+.calendarForm input, .calendarForm textarea { width: 100%; border: 1px solid #344b8e; border-radius: 12px; background: rgba(5, 10, 25, .88); color: #f4f7ff; padding: 12px; font: inherit; box-sizing: border-box; }
+.calendarForm textarea { resize: vertical; }
+.calendarForm button { border: 0; border-radius: 12px; padding: 13px 16px; font-weight: 700; cursor: pointer; }
+.calendarForm button:disabled { cursor: wait; opacity: .65; }
+.calendarDates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.calendarSuccess { border: 1px solid rgba(83, 213, 145, .48); background: rgba(28, 103, 68, .2); border-radius: 14px; padding: 13px 15px; color: #a7f1c9; }
+@media (max-width: 820px) { .calendarGrid { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .calendarDates { grid-template-columns: 1fr; } .calendarBlockHeader { align-items: stretch; flex-direction: column; } }
