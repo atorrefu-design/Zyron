@@ -59,6 +59,7 @@ export default function CalendarPage() {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
   const [success, setSuccess] = useState("");
@@ -140,6 +141,35 @@ export default function CalendarPage() {
     }
   }
 
+  async function removeEvent(item: CalendarEvent) {
+    if (!canWrite || deletingId) return;
+    const confirmed = window.confirm(`¿Eliminar “${item.title}” de Google Calendar?`);
+    if (!confirmed) return;
+
+    setDeletingId(item.id);
+    setError("");
+    setErrorCode("");
+    setSuccess("");
+    try {
+      const response = await fetch("/api/calendar/events/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: item.id, title: item.title }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
+      if (!response.ok) {
+        setErrorCode(data.code || "");
+        throw new Error(data.error || "No se pudo eliminar el evento.");
+      }
+      setEvents((current) => current.filter((event) => event.id !== item.id));
+      setSuccess(`Evento “${item.title}” eliminado de Google Calendar.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo eliminar el evento.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <main className="shell">
       <header className="header">
@@ -152,15 +182,15 @@ export default function CalendarPage() {
       </header>
 
       <section className="panel calendarWorkspace">
-        <div><div className="eyebrow">Agenda conectada</div><h1>Calendario</h1><p className="subtitle">Consulta tus próximos eventos y crea nuevos compromisos sin salir de ZYRON.</p></div>
+        <div><div className="eyebrow">Agenda conectada</div><h1>Calendario</h1><p className="subtitle">Consulta, crea y elimina compromisos sin salir de ZYRON.</p></div>
 
         {googleStatus?.connected && (
           <div className={`healthBanner ${canWrite ? "healthy" : "degraded"}`}>
             <div>
-              <strong>{canWrite ? "Google Calendar listo para leer y crear eventos" : "Calendar conectado con permisos limitados"}</strong>
+              <strong>{canWrite ? "Google Calendar listo para gestionar eventos" : "Calendar conectado con permisos limitados"}</strong>
               <span>{googleStatus.email || "Cuenta de Google conectada"}</span>
             </div>
-            {!canWrite && <a className="ghostButton navLink" href="/api/google/connect">Autorizar creación</a>}
+            {!canWrite && <a className="ghostButton navLink" href="/api/google/connect">Autorizar gestión</a>}
           </div>
         )}
 
@@ -178,11 +208,17 @@ export default function CalendarPage() {
             {loading && <div className="taskEmpty">Consultando Google Calendar…</div>}
             {!loading && events.length === 0 && !error && <div className="taskEmpty">No hay eventos próximos.</div>}
             {!loading && events.map((item) => (
-              <a className="calendarEvent" href={item.htmlLink || undefined} target={item.htmlLink ? "_blank" : undefined} rel="noreferrer" key={item.id}>
+              <div className="calendarEvent" key={item.id}>
                 <div className="calendarEventTime">{formatEvent(item)}</div>
                 <strong>{item.title}</strong>
                 {item.location && <span>{item.location}</span>}
-              </a>
+                <div className="headerActions">
+                  {item.htmlLink && <a className="ghostButton navLink" href={item.htmlLink} target="_blank" rel="noreferrer">Abrir</a>}
+                  <button className="ghostButton" type="button" onClick={() => void removeEvent(item)} disabled={!canWrite || deletingId === item.id}>
+                    {deletingId === item.id ? "Eliminando…" : "Eliminar"}
+                  </button>
+                </div>
+              </div>
             ))}
           </section>
 
@@ -198,7 +234,7 @@ export default function CalendarPage() {
               <label>Notas<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} placeholder="Opcional" /></label>
               <button type="submit" disabled={saving || !title.trim() || !canWrite}>{saving ? "Creando…" : canWrite ? "Crear en Google Calendar" : "Autoriza Google para crear"}</button>
             </form>
-            {!canWrite && <p className="note">Pulsa “Autorizar creación” una sola vez para conceder el nuevo permiso.</p>}
+            {!canWrite && <p className="note">Pulsa “Autorizar gestión” una sola vez para conceder el nuevo permiso.</p>}
           </section>
         </div>
       </section>
