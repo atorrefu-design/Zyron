@@ -24,7 +24,8 @@ declare global {
   }
 }
 
-const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto y consultar tu memoria permanente." }];
+const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y leer tu agenda conectada." }];
+const CHAT_TIMEOUT_MS = 35_000;
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -77,7 +78,7 @@ export default function Home() {
   }
 
   function speak(text: string) {
-    if (!voiceEnabled || !("speechSynthesis" in window)) return;
+    if (!text || !voiceEnabled || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "es-ES";
@@ -97,17 +98,36 @@ export default function Home() {
     setMessages(nextMessages);
     setInput("");
     setLoading(true);
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: nextMessages }) });
-      if (!response.ok) throw new Error();
-      const data = (await response.json()) as { reply: string };
-      setMessages((current) => [...current, { role: "assistant", content: data.reply }]);
-      speak(data.reply);
-    } catch {
-      const fallback = "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
-      setMessages((current) => [...current, { role: "assistant", content: fallback }]);
-      speak(fallback);
-    } finally { setLoading(false); }
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: nextMessages }),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || `Error ${response.status}`);
+      if (!data.reply?.trim()) throw new Error("El núcleo respondió sin texto");
+      const reply = data.reply.trim();
+      setMessages((current) => [...current, { role: "assistant", content: reply }]);
+      speak(reply);
+    } catch (error) {
+      const message = error instanceof DOMException && error.name === "AbortError"
+        ? "La consulta ha tardado demasiado y la he detenido. Prueba de nuevo en unos segundos."
+        : error instanceof Error && error.message
+          ? `No he podido responder: ${error.message}.`
+          : "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
+      setMessages((current) => [...current, { role: "assistant", content: message }]);
+      speak(message);
+    } finally {
+      window.clearTimeout(timeout);
+      setLoading(false);
+    }
   }
 
   function sendMessage(event: FormEvent) { event.preventDefault(); void sendText(input); }
@@ -149,14 +169,14 @@ export default function Home() {
       <section className="panel">
         <div className="eyebrow">Sistema privado · Aarón</div>
         <h1>Hablar</h1>
-        <p className="subtitle">Conversación con memoria, voz y continuidad durante la sesión.</p>
+        <p className="subtitle">Conversación con memoria, voz, tareas y Google Calendar.</p>
         <div className="voiceBar">
           <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening ? "Detener escucha" : "Hablar con ZYRON"}>
             {listening ? "■" : loading ? "…" : speaking ? "◖" : "●"}
           </button>
           <div>
             <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo…" : speechSupported ? "Toca el núcleo para hablar" : "Voz no disponible"}</strong>
-            <div className="voiceHint">Voz española femenina priorizada cuando está disponible en el dispositivo.</div>
+            <div className="voiceHint">Las consultas se detienen automáticamente si el servidor tarda demasiado.</div>
           </div>
           <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
         </div>
