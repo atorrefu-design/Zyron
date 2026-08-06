@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { createTask, listTasks, setTaskCompleted } from "../../../lib/db";
+import { createTask, deleteTask, listTasks, setTaskCompleted } from "../../../lib/db";
 
 export const runtime = "nodejs";
 
@@ -67,8 +67,25 @@ function completionQueryFromMessage(message: string): string | null {
   return null;
 }
 
+function deletionQueryFromMessage(message: string): string | null {
+  const patterns = [
+    /^(?:borra|elimina|quita)\s+(?:la\s+)?tarea\s+(.+)$/i,
+    /^(?:borra|elimina|quita)\s+(?:de\s+mis\s+tareas\s+)?(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const query = message.trim().match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
+    if (query) return query;
+  }
+  return null;
+}
+
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function matchingTasks(query: string, tasks: Awaited<ReturnType<typeof listTasks>>) {
+  const needle = normalize(query);
+  return tasks.filter((task) => normalize(task.title).includes(needle) || needle.includes(normalize(task.title)));
 }
 
 function asksForTasks(message: string): boolean {
@@ -95,8 +112,7 @@ export async function POST(request: Request) {
     const completionQuery = completionQueryFromMessage(lastUserMessage);
     if (completionQuery) {
       const pending = (await listTasks()).filter((task) => !task.completed);
-      const needle = normalize(completionQuery);
-      const matches = pending.filter((task) => normalize(task.title).includes(needle) || needle.includes(normalize(task.title)));
+      const matches = matchingTasks(completionQuery, pending);
       if (matches.length === 1) {
         const task = await setTaskCompleted(matches[0].id, true);
         return NextResponse.json({ reply: `Perfecto. He marcado “${matches[0].title}” como completada.`, action: "task_completed", task });
@@ -106,6 +122,21 @@ export async function POST(request: Request) {
         return NextResponse.json({ reply, action: "task_completion_ambiguous", tasks: matches.slice(0, 6) });
       }
       return NextResponse.json({ reply: `No encuentro ninguna tarea pendiente que encaje con “${completionQuery}”.`, action: "task_not_found" });
+    }
+
+    const deletionQuery = deletionQueryFromMessage(lastUserMessage);
+    if (deletionQuery) {
+      const tasks = await listTasks();
+      const matches = matchingTasks(deletionQuery, tasks);
+      if (matches.length === 1) {
+        await deleteTask(matches[0].id);
+        return NextResponse.json({ reply: `He eliminado la tarea “${matches[0].title}”.`, action: "task_deleted", task: matches[0] });
+      }
+      if (matches.length > 1) {
+        const reply = `Hay varias tareas que encajan. Dime cuál quieres eliminar:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}`;
+        return NextResponse.json({ reply, action: "task_deletion_ambiguous", tasks: matches.slice(0, 6) });
+      }
+      return NextResponse.json({ reply: `No encuentro ninguna tarea que encaje con “${deletionQuery}”.`, action: "task_not_found" });
     }
 
     if (asksForTasks(lastUserMessage)) {
@@ -128,7 +159,7 @@ export async function POST(request: Request) {
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
         "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
-        "Puedes crear, consultar y completar tareas mediante órdenes naturales de Aarón.",
+        "Puedes crear, consultar, completar y eliminar tareas mediante órdenes naturales de Aarón.",
         `Recuerdos relevantes:\n${memoryContext}`,
       ].join("\n\n"),
       input: messages.slice(-12).map((message) => ({ role: message.role, content: message.content })),
