@@ -8,6 +8,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% 0%, #14234d 0%, #080d1c 42%, #040712 100%); }
 button, input { font: inherit; }
+a { color: inherit; }
 
 .shell { width: min(760px, 100%); min-height: 100vh; margin: 0 auto; padding: 28px 18px 110px; }
 .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
@@ -17,8 +18,9 @@ button, input { font: inherit; }
 .state-thinking { color: #ffd280; }
 .state-speaking { color: #c6a7ff; }
 .headerActions { display: flex; gap: 8px; }
-.ghostButton { border: 1px solid #30457f; border-radius: 14px; background: rgba(11, 20, 48, .72); color: #dbe3ff; padding: 9px 12px; }
+.ghostButton { border: 1px solid #30457f; border-radius: 14px; background: rgba(11, 20, 48, .72); color: #dbe3ff; padding: 9px 12px; text-decoration: none; }
 .ghostButton:active { transform: translateY(1px); }
+.navLink { display: inline-flex; align-items: center; justify-content: center; }
 .panel { border: 1px solid #263a77; border-radius: 28px; background: rgba(16, 27, 61, .86); padding: 22px; box-shadow: 0 18px 60px rgba(0,0,0,.35); }
 .eyebrow { color: #9aa9df; letter-spacing: .16em; text-transform: uppercase; font-size: .72rem; }
 h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
@@ -55,6 +57,28 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .login-card button { border: 0; border-radius: 18px; padding: 16px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
 .login-card button:disabled { opacity: .55; }
 .login-error { color: #ff9f9f !important; margin: 0 !important; font-size: .9rem; }
+
+.tasksPanel { min-height: 520px; }
+.taskComposer { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(190px, .8fr) auto; gap: 10px; margin: 24px 0; }
+.taskComposer input { min-width: 0; border: 1px solid #314783; border-radius: 16px; background: #091126; color: white; padding: 14px; }
+.taskComposer button { border: 0; border-radius: 16px; padding: 0 18px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
+.taskComposer button:disabled { opacity: .5; }
+.taskError { color: #ffabab; background: rgba(107, 25, 40, .28); border: 1px solid rgba(255, 125, 145, .28); border-radius: 14px; padding: 12px 14px; }
+.taskList { display: grid; gap: 10px; }
+.taskItem { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border: 1px solid #2b407b; border-radius: 18px; padding: 13px; background: rgba(8, 16, 39, .72); }
+.taskItem.done { opacity: .58; }
+.taskItem.done .taskBody strong { text-decoration: line-through; }
+.taskCheck { width: 28px; height: 28px; border-radius: 9px; border: 1px solid #4d66ad; background: #0a1430; color: #9ff1c7; font-weight: 900; }
+.taskBody { min-width: 0; display: grid; gap: 4px; }
+.taskBody strong { overflow-wrap: anywhere; }
+.taskBody span { color: #8f9bc2; font-size: .8rem; }
+.taskDelete { width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: #ff9eab; font-size: 1.5rem; }
+.taskEmpty { border: 1px dashed #30457f; border-radius: 18px; padding: 28px; color: #8f9bc2; text-align: center; }
+
+@media (max-width: 640px) {
+  .taskComposer { grid-template-columns: 1fr; }
+  .taskComposer button { min-height: 48px; }
+}
 
 @media (max-width: 520px) {
   .shell { padding-top: 18px; }
