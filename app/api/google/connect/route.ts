@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildGoogleAuthorizationUrl, createOAuthState, googleOAuthConfigured } from "../../../../lib/google/oauth";
+import { buildGoogleAuthorizationUrl, createOAuthState } from "../../../../lib/google/oauth";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  if (!googleOAuthConfigured()) {
+  const missing = [
+    ["GOOGLE_CLIENT_ID", process.env.GOOGLE_CLIENT_ID],
+    ["GOOGLE_CLIENT_SECRET", process.env.GOOGLE_CLIENT_SECRET],
+    ["ZYRON_AUTH_SECRET", process.env.ZYRON_AUTH_SECRET],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length) {
     return NextResponse.json(
-      { error: "Faltan GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET o ZYRON_AUTH_SECRET." },
+      {
+        error: "Faltan variables de entorno para Google OAuth.",
+        missing,
+        deployment: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ?? null,
+      },
       { status: 503 },
     );
   }
