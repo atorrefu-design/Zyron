@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Message = { role: "user" | "assistant"; content: string };
 type CoreState = "ready" | "listening" | "thinking" | "speaking";
-
 type SpeechRecognitionEventLike = { results: ArrayLike<{ 0: { transcript: string } }> };
 type SpeechRecognitionInstance = {
   lang: string;
@@ -25,10 +24,7 @@ declare global {
   }
 }
 
-const initialMessages: Message[] = [{
-  role: "assistant",
-  content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto y consultar tu memoria permanente.",
-}];
+const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto y consultar tu memoria permanente." }];
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -48,9 +44,7 @@ export default function Home() {
     try {
       const saved = sessionStorage.getItem("zyron-session-messages");
       if (saved) setMessages(JSON.parse(saved) as Message[]);
-    } catch {
-      sessionStorage.removeItem("zyron-session-messages");
-    }
+    } catch { sessionStorage.removeItem("zyron-session-messages"); }
   }, []);
 
   useEffect(() => {
@@ -113,9 +107,7 @@ export default function Home() {
       const fallback = "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
       setMessages((current) => [...current, { role: "assistant", content: fallback }]);
       speak(fallback);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   function sendMessage(event: FormEvent) { event.preventDefault(); void sendText(input); }
@@ -146,6 +138,7 @@ export default function Home() {
         <div className="headerActions">
           <a className="ghostButton navLink" href="/briefing">Briefing</a>
           <a className="ghostButton navLink" href="/dashboard">Panel</a>
+          <a className="ghostButton navLink" href="/goals">Objetivos</a>
           <a className="ghostButton navLink" href="/tasks">Tareas</a>
           <a className="ghostButton navLink" href="/activity">Actividad</a>
           <button type="button" className="ghostButton" onClick={clearConversation}>Limpiar</button>
