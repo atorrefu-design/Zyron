@@ -1,0 +1,19 @@
+.goalsPanel { display: grid; gap: 22px; min-height: 520px; }
+.goalComposer { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr) auto; gap: 10px; }
+.goalComposer input { min-width: 0; border: 1px solid #314783; border-radius: 16px; background: #091126; color: white; padding: 14px; }
+.goalComposer button { border: 0; border-radius: 16px; padding: 0 18px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
+.goalComposer button:disabled { opacity: .5; }
+.goalGrid { display: grid; gap: 12px; }
+.goalCard { border: 1px solid #2b407b; border-radius: 20px; padding: 17px; background: rgba(8, 16, 39, .72); }
+.goalTop { display: grid; grid-template-columns: auto 1fr auto; gap: 13px; align-items: start; }
+.goalIcon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: #122148; font-size: 1.35rem; }
+.goalTop h2 { margin: 0; font-size: 1.05rem; }
+.goalTop p { margin: 5px 0 0; color: #8f9bc2; line-height: 1.4; font-size: .84rem; }
+.goalTop > strong { color: #9ff1c7; font-size: 1.15rem; }
+.progressTrack { height: 10px; margin: 16px 0 12px; border-radius: 999px; overflow: hidden; background: #0a1430; border: 1px solid #294078; }
+.progressTrack span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #4d77ff, #65e6c4); }
+.goalMeta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #8f9bc2; font-size: .78rem; }
+@media (max-width: 640px) {
+  .goalComposer { grid-template-columns: 1fr; }
+  .goalComposer button { min-height: 48px; }
+}
