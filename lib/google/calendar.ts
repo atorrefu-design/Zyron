@@ -112,3 +112,20 @@ export async function createCalendarEvent(input: CreateCalendarEventInput): Prom
   if (!event.id || !event.start || !event.end) throw new Error("google_calendar_create_invalid_response");
   return mapEvent(event);
 }
+
+export async function deleteCalendarEvent(eventId: string): Promise<void> {
+  const cleanId = eventId.trim();
+  if (!cleanId) throw new Error("calendar_event_id_required");
+
+  const accessToken = await getGoogleAccessToken();
+  const response = await fetch(`${CALENDAR_EVENTS_URL}/${encodeURIComponent(cleanId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok && response.status !== 410) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`google_calendar_delete_${response.status}:${detail.slice(0, 300)}`);
+  }
+}
