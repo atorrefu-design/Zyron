@@ -184,6 +184,7 @@ export default function Home() {
         </div>
         <div className="headerActions">
           <a className="ghostButton navLink" href="/tasks">Tareas</a>
+          <a className="ghostButton navLink" href="/activity">Actividad</a>
           <button type="button" className="ghostButton" onClick={clearConversation}>Limpiar</button>
           <button type="button" className="ghostButton" onClick={logout}>Salir</button>
         </div>
