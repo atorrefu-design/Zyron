@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listActions } from "../../../lib/db";
-import { getHealthSnapshot } from "../../../lib/health";
+import { getZyronHealth } from "../../../lib/health";
 import { buildDailyPlan, formatDailyPlan } from "../../../lib/tools/planner";
 import { getZyronTools } from "../../../lib/tools/registry";
 
@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const [plan, health, recentActions] = await Promise.all([
       buildDailyPlan(),
-      getHealthSnapshot(),
+      getZyronHealth(),
       listActions(5),
     ]);
 
