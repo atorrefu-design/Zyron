@@ -1,3 +1,4 @@
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { NextResponse } from "next/server";
 import { buildProactiveAlerts } from "../../../../lib/proactive";
 import {
@@ -9,14 +10,31 @@ import {
 
 export const runtime = "nodejs";
 
-function cronAuthorized(request: Request) {
+const GITHUB_ISSUER = "https://token.actions.githubusercontent.com";
+const GITHUB_JWKS = createRemoteJWKSet(new URL(`${GITHUB_ISSUER}/.well-known/jwks`));
+
+async function schedulerAuthorized(request: Request) {
+  const authorization = request.headers.get("authorization") || "";
   const secret = process.env.CRON_SECRET;
-  if (secret) return request.headers.get("authorization") === `Bearer ${secret}`;
-  return request.headers.get("x-vercel-cron-schedule") === "0 * * * *";
+  if (secret && authorization === `Bearer ${secret}`) return true;
+
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, GITHUB_JWKS, {
+      issuer: GITHUB_ISSUER,
+      audience: "zyron-push",
+    });
+    return payload.repository === "atorrefu-design/Zyron"
+      && payload.ref === "refs/heads/main"
+      && (payload.event_name === "schedule" || payload.event_name === "workflow_dispatch");
+  } catch {
+    return false;
+  }
 }
 
 export async function GET(request: Request) {
-  if (!cronAuthorized(request)) {
+  if (!(await schedulerAuthorized(request))) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
