@@ -33,6 +33,7 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
   const databaseReady = configured("DATABASE_URL", "POSTGRES_URL");
   const googleReady = allConfigured("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ZYRON_AUTH_SECRET");
   const pushReady = databaseReady && configured("ZYRON_AUTH_SECRET");
+  const mapsReady = configured("GOOGLE_MAPS_API_KEY");
 
   return {
     tasks: {
@@ -100,11 +101,12 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     },
     maps: {
       name: "maps",
-      description: "Calcula rutas, tiempos de viaje y horas recomendadas de salida.",
-      permissions: ["owner_session", "location", "maps"],
+      description: "Calcula rutas en coche, tráfico y horas recomendadas de salida desde la ubicación actual del dispositivo.",
+      permissions: ["owner_session", "device_location", "google_routes"],
       canWrite: false,
       requiresConfirmation: false,
-      status: "planned",
+      status: mapsReady ? "available" : "needs_configuration",
+      configurationHint: "Configurar GOOGLE_MAPS_API_KEY y habilitar Google Routes API.",
     },
     notifications: {
       name: "notifications",
