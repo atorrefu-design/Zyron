@@ -25,6 +25,15 @@ type CalendarCommandResponse = {
   event?: { id: string };
   events?: Array<{ id: string; title?: string }>;
 };
+type ProactiveAlert = {
+  id: string;
+  severity: "alta" | "media" | "baja";
+  source: "system" | "tasks" | "calendar" | "gmail";
+  title: string;
+  detail: string;
+  suggestedAction: string;
+};
+type ProactiveResponse = { alerts?: ProactiveAlert[] };
 
 declare global {
   interface Window {
@@ -38,6 +47,7 @@ const CHAT_TIMEOUT_MS = 35_000;
 const quickPrompts = ["¿Qué tengo hoy?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
 const PENDING_KEY = "zyron-pending-calendar-command";
 const CHOICE_KEY = "zyron-pending-calendar-choice";
+const PROACTIVE_KEY = "zyron-proactive-shown";
 
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -62,6 +72,13 @@ function selectedChoice(message: string, choices: PendingCalendarChoice) {
   if (!match) return null;
   const index = Number(match[1]) - 1;
   return choices.events[index] ?? null;
+}
+
+function proactiveMessage(alerts: ProactiveAlert[]) {
+  const selected = alerts.filter((alert) => alert.severity === "alta").slice(0, 3);
+  if (!selected.length) return null;
+  const lines = selected.map((alert, index) => `${index + 1}. ${alert.title}\n   ${alert.detail}\n   Te propongo: ${alert.suggestedAction}`);
+  return `Aarón, antes de que me preguntes nada he detectado ${selected.length} asunto${selected.length === 1 ? "" : "s"} que conviene mirar:\n${lines.join("\n")}`;
 }
 
 export default function Home() {
@@ -93,6 +110,28 @@ export default function Home() {
       sessionStorage.removeItem(PENDING_KEY);
       sessionStorage.removeItem(CHOICE_KEY);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        if (sessionStorage.getItem(PROACTIVE_KEY)) return;
+        const response = await fetch("/api/alerts", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as ProactiveResponse;
+        const message = proactiveMessage(data.alerts ?? []);
+        sessionStorage.setItem(PROACTIVE_KEY, new Date().toISOString());
+        if (!message || cancelled) return;
+        setMessages((current) => [...current, { role: "assistant", content: message }]);
+      } catch {
+        // Proactivity must never block normal conversation.
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -293,14 +332,14 @@ export default function Home() {
       <section className="panel">
         <div className="eyebrow">Sistema privado · Aarón</div>
         <h1>Hablar</h1>
-        <p className="subtitle">Conversación con memoria, voz, tareas y gestión de Google Calendar.</p>
+        <p className="subtitle">Conversación con memoria, voz, tareas, alertas y gestión de Google Calendar.</p>
         <div className="voiceBar">
           <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening ? "Detener escucha" : "Hablar con ZYRON"}>
             {listening ? "■" : loading ? "…" : speaking ? "◖" : "●"}
           </button>
           <div>
             <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo…" : speechSupported ? "Toca el núcleo para hablar" : "Voz no disponible"}</strong>
-            <div className="voiceHint">Puedes crear, mover o cancelar eventos. Si hay varios parecidos, ZYRON te pedirá elegir.</div>
+            <div className="voiceHint">ZYRON revisa tareas, agenda, correo y salud del núcleo para avisarte si detecta algo prioritario.</div>
           </div>
           <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
         </div>
