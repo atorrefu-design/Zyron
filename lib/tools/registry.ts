@@ -24,8 +24,13 @@ function configured(...variables: string[]) {
   return variables.some((name) => Boolean(process.env[name]));
 }
 
+function allConfigured(...variables: string[]) {
+  return variables.every((name) => Boolean(process.env[name]));
+}
+
 export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
   const databaseReady = configured("DATABASE_URL", "POSTGRES_URL");
+  const googleReady = allConfigured("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ZYRON_AUTH_SECRET");
 
   return {
     tasks: {
@@ -66,19 +71,21 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     },
     calendar: {
       name: "calendar",
-      description: "Consulta disponibilidad y gestiona eventos del calendario del propietario.",
-      permissions: ["owner_session", "google_oauth", "calendar"],
+      description: "Consulta y gestiona eventos del Google Calendar conectado del propietario.",
+      permissions: ["owner_session", "google_oauth", "calendar.events"],
       canWrite: true,
       requiresConfirmation: true,
-      status: "planned",
+      status: googleReady ? "available" : "needs_configuration",
+      configurationHint: "Configurar Google OAuth y autorizar el scope calendar.events.",
     },
     gmail: {
       name: "gmail",
-      description: "Busca, resume, redacta y envía correo del propietario.",
-      permissions: ["owner_session", "google_oauth", "gmail"],
-      canWrite: true,
-      requiresConfirmation: true,
-      status: "planned",
+      description: "Busca y consulta de forma privada mensajes del Gmail conectado. El envío aún no está habilitado.",
+      permissions: ["owner_session", "google_oauth", "gmail.readonly"],
+      canWrite: false,
+      requiresConfirmation: false,
+      status: googleReady ? "available" : "needs_configuration",
+      configurationHint: "Configurar Google OAuth y autorizar el scope gmail.readonly.",
     },
     maps: {
       name: "maps",
