@@ -4,6 +4,8 @@ import { neon } from "@neondatabase/serverless";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+export const GOOGLE_SCOPES = [CALENDAR_SCOPE, GMAIL_READONLY_SCOPE] as const;
 
 type StoredGoogleConnection = {
   provider: "google";
@@ -82,7 +84,7 @@ export function buildGoogleAuthorizationUrl(origin: string, state: string) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: `openid email ${CALENDAR_SCOPE}`,
+    scope: `openid email ${GOOGLE_SCOPES.join(" ")}`,
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -134,14 +136,14 @@ export async function exchangeCode(origin: string, code: string) {
   const sql = neon(databaseUrl());
   await sql`
     INSERT INTO zyron_connections (provider, encrypted_refresh_token, scope, email, updated_at)
-    VALUES ('google', ${encrypt(token.refresh_token)}, ${token.scope || CALENDAR_SCOPE}, ${email}, NOW())
+    VALUES ('google', ${encrypt(token.refresh_token)}, ${token.scope || GOOGLE_SCOPES.join(" ")}, ${email}, NOW())
     ON CONFLICT (provider) DO UPDATE SET
       encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
       scope = EXCLUDED.scope,
       email = EXCLUDED.email,
       updated_at = NOW()
   `;
-  return { email, scope: token.scope || CALENDAR_SCOPE };
+  return { email, scope: token.scope || GOOGLE_SCOPES.join(" ") };
 }
 
 export async function getGoogleConnection() {
@@ -152,6 +154,10 @@ export async function getGoogleConnection() {
     FROM zyron_connections WHERE provider = 'google' LIMIT 1
   `;
   return (rows[0] as StoredGoogleConnection | undefined) ?? null;
+}
+
+export function connectionHasScope(scopeValue: string | null | undefined, requiredScope: string) {
+  return Boolean(scopeValue?.split(/\s+/).includes(requiredScope));
 }
 
 export async function getGoogleAccessToken() {
