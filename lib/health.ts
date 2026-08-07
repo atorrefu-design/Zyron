@@ -27,7 +27,7 @@ async function timedCheck(check: () => Promise<void>, timeoutMs = 4500): Promise
     return {
       reachable: false,
       latencyMs: Date.now() - startedAt,
-      detail: error instanceof Error ? error.message.slice(0, 120) : "unknown_error",
+      detail: error instanceof Error ? error.message.slice(0, 160) : "unknown_error",
     };
   }
 }
@@ -46,10 +46,6 @@ async function checkMem0(): Promise<CheckResult> {
   const apiKey = process.env.MEM0_API_KEY;
   if (!apiKey) return { configured: false, reachable: null, latencyMs: null };
 
-  // A health check should only verify that Mem0 is reachable and the API key is valid.
-  // Semantic search can invoke embedding/retrieval work and occasionally exceed a short
-  // health-check timeout even while the service itself is healthy, so use the lightweight
-  // paginated memory-list endpoint instead.
   const result = await timedCheck(async () => {
     const response = await fetch("https://api.mem0.ai/v3/memories/?page=1&page_size=1", {
       method: "POST",
@@ -58,10 +54,10 @@ async function checkMem0(): Promise<CheckResult> {
       cache: "no-store",
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`http_${response.status}${detail ? `:${detail.slice(0, 80)}` : ""}`);
+      const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 100);
+      throw new Error(`mem0_http_${response.status}${detail ? `:${detail}` : ""}`);
     }
-  }, 8000);
+  }, 10000);
 
   return { configured: true, ...result };
 }
@@ -78,5 +74,5 @@ export async function getZyronHealth(): Promise<ZyronHealth> {
 
   const required = Object.values(checks);
   const ok = required.every((check) => check.configured && check.reachable !== false);
-  return { ok, service: "zyron-core", version: "0.4.2", checks, time: new Date().toISOString() };
+  return { ok, service: "zyron-core", version: "0.4.3", checks, time: new Date().toISOString() };
 }
