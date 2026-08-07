@@ -13,6 +13,20 @@ type GoogleStatus = {
   updatedAt?: string | null;
   error?: string;
 };
+type ProactiveAlert = {
+  id: string;
+  severity: "alta" | "media" | "baja";
+  source: "system" | "tasks" | "calendar" | "gmail";
+  title: string;
+  detail: string;
+  suggestedAction: string;
+  eventAt?: string | null;
+};
+type ProactiveData = {
+  alerts: ProactiveAlert[];
+  generatedAt: string;
+  diagnostics: Record<string, "ok" | "unavailable">;
+};
 type DashboardData = {
   summary: { pendingTasks: number; completedTasks: number; availableTools: number; plannedTools: number; activeGoals: number };
   health: { ok: boolean; version: string; time: string; checks: Record<string, CheckResult> };
@@ -50,20 +64,31 @@ function hasScope(scope: string | null | undefined, required: string) {
   return Boolean(scope?.split(/\s+/).includes(required));
 }
 
+function alertIcon(alert: ProactiveAlert) {
+  if (alert.severity === "alta") return "!";
+  if (alert.source === "calendar") return "◷";
+  if (alert.source === "gmail") return "✉";
+  if (alert.source === "tasks") return "□";
+  return "•";
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
+  const [proactive, setProactive] = useState<ProactiveData | null>(null);
   const [error, setError] = useState("");
   async function load() {
     setError("");
     try {
-      const [dashboardResponse, googleResponse] = await Promise.all([
+      const [dashboardResponse, googleResponse, proactiveResponse] = await Promise.all([
         fetch("/api/dashboard", { cache: "no-store" }),
         fetch("/api/google/status", { cache: "no-store" }),
+        fetch("/api/alerts", { cache: "no-store" }),
       ]);
       if (!dashboardResponse.ok) throw new Error();
       setData((await dashboardResponse.json()) as DashboardData);
       setGoogle(googleResponse.ok ? ((await googleResponse.json()) as GoogleStatus) : null);
+      setProactive(proactiveResponse.ok ? ((await proactiveResponse.json()) as ProactiveData) : null);
     } catch {
       setError("No he podido cargar el panel de control.");
     }
@@ -84,6 +109,11 @@ export default function DashboardPage() {
         {data && <>
           <div className={`healthBanner ${data.health.ok ? "healthy" : "degraded"}`}><div><strong>{data.health.ok ? "Todos los sistemas operativos" : "Sistema parcialmente degradado"}</strong><span>Núcleo {data.health.version} · {new Date(data.health.time).toLocaleString("es-ES")}</span></div><button className="ghostButton" type="button" onClick={() => void load()}>Comprobar</button></div>
           <div className="serviceGrid">{Object.entries(data.health.checks).map(([name, check]) => <div className="serviceCard" key={name}><i className={!check.configured || check.reachable === false ? "bad" : "good"} /><div><strong>{name}</strong><span>{checkLabel(check)}</span>{name === "mem0" && check.reachable === false && check.detail && <small>{check.detail}</small>}</div></div>)}</div>
+
+          <section className="dashboardBlock">
+            <div className="blockHeader"><h2>ZYRON te avisa</h2><button className="ghostButton" type="button" onClick={() => void load()}>Revisar ahora</button></div>
+            {!proactive ? <div className="mutedBox">Preparando avisos proactivos…</div> : proactive.alerts.length ? proactive.alerts.map((alert) => <div className="compactRow" key={alert.id}><span>{alertIcon(alert)}</span><div><strong>{alert.title}</strong><small>{alert.detail}</small><small><b>Acción sugerida:</b> {alert.suggestedAction}</small></div></div>) : <div className="mutedBox">No detecto nada urgente o próximo que requiera tu atención ahora mismo.</div>}
+          </section>
 
           <section className="dashboardBlock">
             <div className="blockHeader"><h2>Google</h2><a href="/api/google/connect">{googleActionLabel}</a></div>
