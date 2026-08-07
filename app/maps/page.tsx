@@ -55,6 +55,15 @@ function formatClock(value: string) {
   }).format(new Date(value));
 }
 
+function routeErrorMessage(value: string) {
+  if (value === "maps_not_configured") return "Falta configurar Google Routes en el servidor.";
+  if (/maps_routes_403/.test(value)) return "Google Routes ha rechazado la clave. Revisa que Routes API esté habilitada, que la clave permita Routes API y que el proyecto tenga facturación activa.";
+  if (/maps_routes_400/.test(value)) return "Google no ha aceptado esta ruta. Prueba escribiendo el destino con municipio y provincia, por ejemplo: «Jacint Verdaguer 154, Barcelona».";
+  if (/maps_route_unavailable/.test(value)) return "Google no ha encontrado una ruta válida para ese destino. Añade municipio o código postal para concretarlo.";
+  if (/maps_routes_429/.test(value)) return "Google Routes ha aplicado un límite temporal. Espera unos segundos y vuelve a probar.";
+  return "No he podido calcular la ruta. Revisa la configuración de Maps y vuelve a intentarlo.";
+}
+
 export default function MapsPage() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [destination, setDestination] = useState("");
@@ -142,9 +151,7 @@ export default function MapsPage() {
         ? locationError.code === 1
           ? "Necesito permiso de ubicación para calcular desde donde estás ahora."
           : "No he podido obtener tu ubicación actual."
-        : error instanceof Error && error.message === "maps_not_configured"
-          ? "Falta configurar Google Routes en el servidor."
-          : "No he podido calcular la ruta. Revisa la configuración de Maps y vuelve a intentarlo.";
+        : routeErrorMessage(error instanceof Error ? error.message : "");
       setStatus(message);
     } finally {
       setLoading(false);
