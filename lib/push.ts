@@ -165,7 +165,7 @@ export async function sendPushNotification(payload: PushPayload) {
   if (!subscriptions.length) return { sent: 0, failed: 0, disabled: 0 };
 
   const vapid = await getOrCreateVapidKeys();
-  webpush.setVapidDetails("mailto:zyron-notifications@localhost.invalid", vapid.publicKey, vapid.privateKey);
+  webpush.setVapidDetails("https://zyron-five.vercel.app", vapid.publicKey, vapid.privateKey);
 
   let sent = 0;
   let failed = 0;
