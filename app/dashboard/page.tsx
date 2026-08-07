@@ -36,6 +36,8 @@ type DashboardData = {
   calendar: { connected: boolean; events: CalendarEvent[]; error: string | null };
   tools: Array<{ name: string; description: string; status: "available" | "needs_configuration" | "planned" }>;
 };
+type PushState = "checking" | "ready" | "active" | "needs_install" | "denied" | "unsupported" | "error";
+type PushStatusResponse = { configured?: boolean; publicKey?: string; subscriptions?: number; error?: string };
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -72,11 +74,27 @@ function alertIcon(alert: ProactiveAlert) {
   return "•";
 }
 
+function base64UrlToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
+}
+
+function isStandalone() {
+  const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia("(display-mode: standalone)").matches || navigatorWithStandalone.standalone === true;
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [proactive, setProactive] = useState<ProactiveData | null>(null);
   const [error, setError] = useState("");
+  const [pushState, setPushState] = useState<PushState>("checking");
+  const [pushMessage, setPushMessage] = useState("");
+  const [pushBusy, setPushBusy] = useState(false);
+
   async function load() {
     setError("");
     try {
@@ -93,7 +111,112 @@ export default function DashboardPage() {
       setError("No he podido cargar el panel de control.");
     }
   }
-  useEffect(() => { void load(); }, []);
+
+  async function inspectPush() {
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        setPushState("unsupported");
+        setPushMessage("Este navegador no admite notificaciones web push.");
+        return;
+      }
+      const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isiPhone && !isStandalone()) {
+        setPushState("needs_install");
+        setPushMessage("En iPhone, añade ZYRON a la pantalla de inicio desde Safari para recibir avisos con ZYRON cerrado.");
+        return;
+      }
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        setPushState("active");
+        setPushMessage("Este dispositivo ya puede recibir avisos de ZYRON.");
+      } else if (Notification.permission === "denied") {
+        setPushState("denied");
+        setPushMessage("Las notificaciones están bloqueadas para ZYRON en este dispositivo.");
+      } else {
+        setPushState("ready");
+        setPushMessage("Listo para activar avisos proactivos en este dispositivo.");
+      }
+    } catch {
+      setPushState("error");
+      setPushMessage("No he podido comprobar las notificaciones de este dispositivo.");
+    }
+  }
+
+  async function enablePush() {
+    if (pushBusy) return;
+    if (pushState === "needs_install") {
+      setPushMessage("Abre ZYRON en Safari, pulsa Compartir → Añadir a pantalla de inicio, abre el icono de ZYRON y vuelve a este Panel.");
+      return;
+    }
+    setPushBusy(true);
+    setPushMessage("");
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) throw new Error("push_unsupported");
+      const statusResponse = await fetch("/api/push", { cache: "no-store" });
+      const status = (await statusResponse.json()) as PushStatusResponse;
+      if (!statusResponse.ok || !status.publicKey) throw new Error(status.error || "push_not_configured");
+
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushState(permission === "denied" ? "denied" : "ready");
+        setPushMessage(permission === "denied" ? "Has bloqueado las notificaciones. Puedes reactivarlas desde los ajustes del iPhone." : "No se ha concedido permiso para notificaciones.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: base64UrlToUint8Array(status.publicKey) as BufferSource,
+        });
+      }
+
+      const subscribeResponse = await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "subscribe", subscription: subscription.toJSON() }),
+      });
+      if (!subscribeResponse.ok) throw new Error("push_subscription_failed");
+
+      const testResponse = await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test" }),
+      });
+      if (!testResponse.ok) throw new Error("push_test_failed");
+
+      setPushState("active");
+      setPushMessage("Avisos activados. He enviado una notificación de prueba a este dispositivo.");
+    } catch (pushError) {
+      console.error("ZYRON_PUSH_ENABLE_ERROR", pushError);
+      setPushState("error");
+      setPushMessage("No he podido activar los avisos. Vuelve a intentarlo desde la app de ZYRON instalada en la pantalla de inicio.");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function sendPushTest() {
+    if (pushBusy) return;
+    setPushBusy(true);
+    try {
+      const response = await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test" }),
+      });
+      if (!response.ok) throw new Error();
+      setPushMessage("Notificación de prueba enviada.");
+    } catch {
+      setPushMessage("No he podido enviar la prueba. Revisa que los avisos sigan permitidos.");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  useEffect(() => { void load(); void inspectPush(); }, []);
 
   const calendarAuthorized = hasScope(google?.scope, CALENDAR_SCOPE);
   const gmailAuthorized = hasScope(google?.scope, GMAIL_SCOPE);
@@ -113,6 +236,16 @@ export default function DashboardPage() {
           <section className="dashboardBlock">
             <div className="blockHeader"><h2>ZYRON te avisa</h2><button className="ghostButton" type="button" onClick={() => void load()}>Revisar ahora</button></div>
             {!proactive ? <div className="mutedBox">Preparando avisos proactivos…</div> : proactive.alerts.length ? proactive.alerts.map((alert) => <div className="compactRow" key={alert.id}><span>{alertIcon(alert)}</span><div><strong>{alert.title}</strong><small>{alert.detail}</small><small><b>Acción sugerida:</b> {alert.suggestedAction}</small></div></div>) : <div className="mutedBox">No detecto nada urgente o próximo que requiera tu atención ahora mismo.</div>}
+          </section>
+
+          <section className="dashboardBlock">
+            <div className="blockHeader"><h2>Avisos en el iPhone</h2><span>{pushState === "active" ? "ACTIVOS" : pushState === "checking" ? "COMPROBANDO" : "PENDIENTES"}</span></div>
+            <div className="compactRow"><span>🔔</span><div><strong>{pushState === "active" ? "ZYRON puede avisarte con la app cerrada" : "Notificaciones proactivas"}</strong><small>{pushMessage || "Comprobando este dispositivo…"}</small></div></div>
+            <div className="headerActions">
+              {pushState !== "active" && <button className="ghostButton" type="button" disabled={pushBusy || pushState === "checking" || pushState === "unsupported" || pushState === "denied"} onClick={() => void enablePush()}>{pushBusy ? "Activando…" : pushState === "needs_install" ? "Cómo instalar ZYRON" : "Activar avisos"}</button>}
+              {pushState === "active" && <button className="ghostButton" type="button" disabled={pushBusy} onClick={() => void sendPushTest()}>{pushBusy ? "Enviando…" : "Enviar prueba"}</button>}
+              <button className="ghostButton" type="button" disabled={pushBusy} onClick={() => void inspectPush()}>Comprobar</button>
+            </div>
           </section>
 
           <section className="dashboardBlock">
