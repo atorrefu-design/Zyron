@@ -3,8 +3,14 @@ import { NextResponse } from "next/server";
 import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../../../lib/db";
 import { listCalendarEvents, type ZyronCalendarEvent } from "../../../lib/google/calendar";
 import {
+  compactSender,
+  getInboxUnreadCount,
+  listGmailMessages,
+  prioritizeGmailMessages,
+  type GmailMessage,
+} from "../../../lib/google/gmail";
+import {
   connectionHasScope,
-  getGoogleAccessToken,
   getGoogleConnection,
   GMAIL_READONLY_SCOPE,
 } from "../../../lib/google/oauth";
@@ -15,7 +21,6 @@ export const runtime = "nodejs";
 const USER_ID = "aaron";
 const AGENT_ID = "zyron";
 const MADRID_TIME_ZONE = "Europe/Madrid";
-const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type MemoryResult = { memory?: string };
@@ -27,32 +32,11 @@ type TaskIntent =
   | { action: "none"; query: "" };
 type CalendarIntent = "today" | "tomorrow" | "week" | "next" | null;
 type GmailIntent = {
-  mode: "recent" | "unread" | "important" | "sender";
+  mode: "recent" | "unread" | "important" | "sender" | "action";
   query: string;
   today: boolean;
   label: string;
 } | null;
-type GmailHeader = { name: string; value: string };
-type GmailMessage = {
-  id: string;
-  threadId: string;
-  subject: string;
-  from: string | null;
-  snippet: string;
-  unread: boolean;
-  starred: boolean;
-  important: boolean;
-  internalDate: string | null;
-};
-type GmailListResponse = { messages?: Array<{ id: string; threadId: string }> };
-type GmailMessageResponse = {
-  id: string;
-  threadId: string;
-  labelIds?: string[];
-  snippet?: string;
-  internalDate?: string;
-  payload?: { headers?: GmailHeader[] };
-};
 
 function getOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -84,7 +68,7 @@ async function storeConversation(messages: ChatMessage[]): Promise<void> {
       user_id: USER_ID,
       agent_id: AGENT_ID,
       metadata: { source: "zyron-web" },
-      custom_instructions: "Guarda únicamente hechos, preferencias, objetivos, rutinas, proyectos y decisiones útiles a largo plazo sobre Aarón. No guardes saludos, texto transitorio ni secretos.",
+      custom_instructions: "Guarda únicamente hechos, preferencias, objetivos, rutinas, proyectos y decisiones útiles a largo plazo sobre Aarón. No guardes saludos, texto transitorio, secretos ni contenido de correos privados.",
     }),
   });
 }
@@ -120,7 +104,11 @@ function detectGmailIntent(message: string): GmailIntent {
   const period = today ? "newer_than:2d" : "newer_than:14d";
 
   if (/\b(no leido|no leidos|sin leer|pendientes de leer|pendiente de leer)\b/.test(clean)) {
-    return { mode: "unread", query: `in:inbox ${period} is:unread`, today, label: today ? "sin leer de hoy" : "sin leer recientes" };
+    return { mode: "unread", query: `in:inbox ${period} is:unread`, today, label: today ? "sin leer de hoy" : "sin leer" };
+  }
+
+  if (/\b(requiere|requieren|accion|hacer algo|debo atender|tengo que atender|debo responder|tengo que responder|prioriza|prioridad)\b/.test(clean)) {
+    return { mode: "action", query: "in:inbox newer_than:7d", today, label: "que pueden requerir acción" };
   }
 
   if (/\b(importante|importantes|prioritario|prioritarios|urgente|urgentes|destacado|destacados)\b/.test(clean)) {
@@ -211,49 +199,6 @@ async function executeCalendarIntent(intent: Exclude<CalendarIntent, null>) {
   return { reply, action: "calendar_read", tool: "calendar", events: selected };
 }
 
-function gmailHeader(headers: GmailHeader[] | undefined, name: string) {
-  return headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? null;
-}
-
-async function gmailFetch<T>(path: string, accessToken: string): Promise<T> {
-  const response = await fetch(`${GMAIL_API}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`gmail_api_${response.status}`);
-  return response.json() as Promise<T>;
-}
-
-async function listGmailMessages(query: string, maxResults = 15): Promise<GmailMessage[]> {
-  const accessToken = await getGoogleAccessToken();
-  const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
-  const listed = await gmailFetch<GmailListResponse>(`/messages?${params.toString()}`, accessToken);
-  const refs = listed.messages ?? [];
-
-  return Promise.all(refs.map(async (ref) => {
-    const metadata = new URLSearchParams({ format: "metadata" });
-    ["Subject", "From", "Date"].forEach((name) => metadata.append("metadataHeaders", name));
-    const message = await gmailFetch<GmailMessageResponse>(`/messages/${encodeURIComponent(ref.id)}?${metadata.toString()}`, accessToken);
-    const labels = message.labelIds ?? [];
-    return {
-      id: message.id,
-      threadId: message.threadId,
-      subject: gmailHeader(message.payload?.headers, "Subject") || "(Sin asunto)",
-      from: gmailHeader(message.payload?.headers, "From"),
-      snippet: message.snippet ?? "",
-      unread: labels.includes("UNREAD"),
-      starred: labels.includes("STARRED"),
-      important: labels.includes("IMPORTANT"),
-      internalDate: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null,
-    };
-  }));
-}
-
-function compactSender(value: string | null) {
-  if (!value) return "Remitente desconocido";
-  return value.replace(/\s*<[^>]+>\s*$/, "").replace(/^"|"$/g, "").trim() || value;
-}
-
 function formatGmailMessage(message: GmailMessage) {
   const flags = `${message.starred ? "⭐ " : ""}${message.unread ? "● " : ""}`;
   const snippet = message.snippet.trim().replace(/\s+/g, " ").slice(0, 140);
@@ -278,18 +223,79 @@ async function executeGmailIntent(intent: Exclude<GmailIntent, null>) {
     };
   }
 
-  let messages = await listGmailMessages(intent.query);
+  const fetchLimit = intent.mode === "action" || intent.today ? 20 : 15;
+  let messages = await listGmailMessages(intent.query, fetchLimit);
+
   if (intent.today) {
     const today = madridDateKey(new Date());
     messages = messages.filter((message) => message.internalDate && madridDateKey(message.internalDate) === today);
   }
+
+  if (intent.mode === "unread" && !intent.today) {
+    const totalUnread = await getInboxUnreadCount();
+    await safelyRecordAction("gmail_unread_count", `Consultó el total de correos sin leer: ${totalUnread}.`, { count: totalUnread }, "gmail");
+    if (totalUnread === 0) {
+      return { reply: "No tienes correos sin leer en la bandeja de entrada.", action: "gmail_read", tool: "gmail", messages: [] };
+    }
+    const visible = messages.slice(0, 8);
+    return {
+      reply: `Tienes ${totalUnread} correo${totalUnread === 1 ? "" : "s"} sin leer en la bandeja de entrada.${visible.length ? ` Te muestro ${visible.length} de los más recientes:\n${visible.map((message, index) => `${index + 1}. ${formatGmailMessage(message)}`).join("\n")}` : ""}`,
+      action: "gmail_read",
+      tool: "gmail",
+      totalUnread,
+      messages: visible,
+    };
+  }
+
+  if (intent.mode === "action") {
+    const priorities = await prioritizeGmailMessages(messages);
+    const byId = new Map(priorities.map((item) => [item.id, item]));
+    const ranked = messages.map((message) => ({ message, priority: byId.get(message.id) }))
+      .sort((a, b) => {
+        const rank = { alta: 3, media: 2, baja: 1 } as const;
+        return rank[b.priority?.priority ?? "baja"] - rank[a.priority?.priority ?? "baja"];
+      });
+    const high = ranked.filter((item) => item.priority?.priority === "alta");
+    const selected = (high.length ? high : ranked.filter((item) => item.priority?.priority === "media")).slice(0, 6);
+
+    await safelyRecordAction(
+      "gmail_priority_read",
+      `Analizó ${messages.length} correos recientes y detectó ${high.length} de alta prioridad.`,
+      { reviewed: messages.length, highPriority: high.length },
+      "gmail",
+    );
+
+    if (!selected.length) {
+      return {
+        reply: `He revisado ${messages.length} correos recientes y no veo ninguno con señales claras de que requiera una acción por tu parte.`,
+        action: "gmail_priority_read",
+        tool: "gmail",
+        messages: [],
+      };
+    }
+
+    const heading = high.length
+      ? `Entre los ${messages.length} correos recientes que he revisado, detecto ${high.length} de alta prioridad:`
+      : `No veo ninguno de alta prioridad entre los ${messages.length} recientes, pero estos conviene revisarlos:`;
+    const lines = selected.map((item, index) => {
+      const priority = item.priority;
+      return `${index + 1}. ${compactSender(item.message.from)} · ${item.message.subject}\n   ${priority?.summary || item.message.snippet}\n   Motivo: ${priority?.reason || "Conviene revisarlo."}`;
+    });
+    return {
+      reply: `${heading}\n${lines.join("\n")}`,
+      action: "gmail_priority_read",
+      tool: "gmail",
+      messages: selected.map((item) => item.message),
+    };
+  }
+
   if (intent.mode === "important") {
     messages = messages.filter((message) => message.important || message.starred);
   }
 
   await safelyRecordAction(
     "gmail_read",
-    `Consultó correos ${intent.label}: ${messages.length} encontrados.`,
+    `Consultó correos ${intent.label}: ${messages.length} encontrados en la muestra consultada.`,
     { mode: intent.mode, count: messages.length, today: intent.today },
     "gmail",
   );
@@ -306,8 +312,8 @@ async function executeGmailIntent(intent: Exclude<GmailIntent, null>) {
 
   const visible = messages.slice(0, 8);
   const prefix = intent.mode === "important"
-    ? `He encontrado ${messages.length} correo${messages.length === 1 ? "" : "s"} marcado${messages.length === 1 ? "" : "s"} como importante${messages.length === 1 ? "" : "s"} o destacado${messages.length === 1 ? "" : "s"} ${intent.label}:`
-    : `He encontrado ${messages.length} correo${messages.length === 1 ? "" : "s"} ${intent.label}:`;
+    ? `Estos son los correos marcados por Gmail como importantes o destacados que he encontrado ${intent.label}:`
+    : `Estos son los correos ${intent.label} que he encontrado:`;
   return {
     reply: `${prefix}\n${visible.map((message, index) => `${index + 1}. ${formatGmailMessage(message)}`).join("\n")}`,
     action: "gmail_read",
@@ -454,12 +460,11 @@ export async function POST(request: Request) {
     if (gmailIntent) {
       try {
         const result = await executeGmailIntent(gmailIntent);
-        void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: result.reply }]).catch(() => undefined);
         return NextResponse.json(result);
       } catch (error) {
         console.error("ZYRON_GMAIL_CHAT_ERROR", error);
         return NextResponse.json({
-          reply: "No he podido leer Gmail ahora mismo. Si acabas de activar el acceso, vuelve a autorizar Google desde el Panel y prueba de nuevo.",
+          reply: "No he podido leer Gmail ahora mismo. El permiso está configurado, así que prueba de nuevo en unos segundos. Si persiste, revisaremos el diagnóstico de Gmail desde el Panel.",
           action: "gmail_read_failed",
           tool: "gmail",
         });
@@ -475,7 +480,7 @@ export async function POST(request: Request) {
       } catch (error) {
         console.error("ZYRON_CALENDAR_CHAT_ERROR", error);
         return NextResponse.json({
-          reply: "Google Calendar está conectado, pero no he podido leer la agenda. Abre el Panel para comprobar si falta volver a autorizar el permiso de calendario.",
+          reply: "Google Calendar está conectado, pero no he podido leer la agenda. Abre el Panel para comprobar el estado de Google.",
           action: "calendar_read_failed",
           tool: "calendar",
         });
