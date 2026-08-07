@@ -37,6 +37,15 @@ function severityRank(value: ProactiveSeverity) {
   return value === "alta" ? 3 : value === "media" ? 2 : 1;
 }
 
+function localDateKey(now: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
 export async function buildProactiveAlerts(now = new Date()): Promise<ProactiveAlertResult> {
   const diagnostics: ProactiveAlertResult["diagnostics"] = {
     system: "ok",
@@ -61,9 +70,11 @@ export async function buildProactiveAlerts(now = new Date()): Promise<ProactiveA
     if (!healthResult.value.ok) {
       const failed = Object.entries(healthResult.value.checks)
         .filter(([, check]) => !check.configured || check.reachable === false)
-        .map(([name]) => name);
+        .map(([name]) => name)
+        .sort();
+      const failedKey = failed.length ? failed.join("-") : "degraded";
       alerts.push({
-        id: `system-${now.toISOString().slice(0, 13)}`,
+        id: `system-${localDateKey(now)}-${failedKey}`,
         severity: "alta",
         source: "system",
         title: "ZYRON necesita atención técnica",
