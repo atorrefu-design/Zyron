@@ -103,14 +103,19 @@ export async function listGmailMessages(query: string, maxResults = 15): Promise
 function fallbackPriority(messages: GmailMessage[]): GmailPriority[] {
   return messages.map((message) => {
     const score = (message.important ? 3 : 0) + (message.starred ? 2 : 0) + (message.unread ? 1 : 0);
+    const priority = score >= 4 ? "alta" : score >= 1 ? "media" : "baja";
+    let reason: string;
+    if (message.important || message.starred) {
+      reason = "Gmail lo ha marcado como importante o destacado. Acción sugerida: abre el correo y comprueba si requiere respuesta o una tarea concreta.";
+    } else if (message.unread) {
+      reason = "Está sin leer. Acción sugerida: revísalo cuando limpies los correos recientes; no hay señal suficiente para una acción más específica.";
+    } else {
+      reason = "No tiene señales claras de urgencia. Acción sugerida: no necesita atención inmediata.";
+    }
     return {
       id: message.id,
-      priority: score >= 4 ? "alta" : score >= 1 ? "media" : "baja",
-      reason: message.important || message.starred
-        ? "Gmail lo ha marcado como importante o destacado."
-        : message.unread
-          ? "Está sin leer."
-          : "No tiene señales claras de urgencia.",
+      priority,
+      reason,
       summary: message.snippet || message.subject,
     };
   });
@@ -130,7 +135,10 @@ export async function prioritizeGmailMessages(messages: GmailMessage[]): Promise
         "Alta: requiere atención pronta, respuesta, una acción, un plazo, una incidencia, dinero, seguridad o alguien claramente esperando algo.",
         "Media: relevante y conviene revisarlo, pero sin urgencia clara.",
         "Baja: publicidad, automatismos, newsletters o información sin acción probable.",
-        "Devuelve exclusivamente JSON válido con forma {\"items\":[{\"id\":\"...\",\"priority\":\"alta|media|baja\",\"reason\":\"...\",\"summary\":\"...\"}]}",
+        "Para cada correo debes proponer también el siguiente paso más útil, pero solo si se puede deducir razonablemente del remitente, asunto o fragmento.",
+        "No afirmes que una acción se ha ejecutado. ZYRON aquí solo recomienda; no envía, borra, archiva ni modifica Gmail.",
+        "En el campo reason usa exactamente dos partes breves: 'Motivo: ... Acción sugerida: ...'. Si no se puede saber qué hacer, indica 'Acción sugerida: revisar el correo antes de decidir'.",
+        "Devuelve exclusivamente JSON válido con forma {\"items\":[{\"id\":\"...\",\"priority\":\"alta|media|baja\",\"reason\":\"Motivo: ... Acción sugerida: ...\",\"summary\":\"...\"}]}",
         "reason y summary deben ser breves y en castellano de España.",
       ].join("\n"),
       input: JSON.stringify(messages.map((message) => ({
