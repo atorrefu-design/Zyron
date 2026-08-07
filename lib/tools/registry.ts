@@ -5,6 +5,7 @@ export type ZyronToolName =
   | "planner"
   | "calendar"
   | "gmail"
+  | "proactive"
   | "maps"
   | "notifications";
 
@@ -86,6 +87,15 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
       requiresConfirmation: false,
       status: googleReady ? "available" : "needs_configuration",
       configurationHint: "Configurar Google OAuth y autorizar el scope gmail.readonly.",
+    },
+    proactive: {
+      name: "proactive",
+      description: "Cruza salud del núcleo, tareas, agenda y correo para detectar asuntos que conviene atender antes de que el propietario pregunte.",
+      permissions: ["owner_session", "database", "google_oauth", "openai"],
+      canWrite: false,
+      requiresConfirmation: false,
+      status: databaseReady && googleReady && configured("OPENAI_API_KEY") ? "available" : "needs_configuration",
+      configurationHint: "Requiere base de datos, Google OAuth y OpenAI configurados.",
     },
     maps: {
       name: "maps",
