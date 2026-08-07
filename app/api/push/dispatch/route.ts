@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { NextResponse } from "next/server";
 import { buildProactiveAlerts } from "../../../../lib/proactive";
+import { pushPolicySummary, selectPushCandidates } from "../../../../lib/push-policy";
 import {
   claimPushDispatchWindow,
   markAlertsSent,
@@ -39,19 +40,20 @@ export async function GET(request: Request) {
   }
 
   try {
+    const now = new Date();
     const claimed = await claimPushDispatchWindow();
     if (!claimed) return NextResponse.json({ ok: true, skipped: "dispatch_window" });
 
-    const result = await buildProactiveAlerts();
-    const high = result.alerts.filter((alert) => alert.severity === "alta");
+    const result = await buildProactiveAlerts(now);
+    const candidates = selectPushCandidates(result.alerts, now, 3);
     const unsent = [];
-    for (const alert of high) {
+    for (const alert of candidates) {
       if (!(await wasAlertSent(alert.id))) unsent.push(alert);
-      if (unsent.length >= 3) break;
     }
 
+    const policy = pushPolicySummary(now);
     if (!unsent.length) {
-      return NextResponse.json({ ok: true, alerts: 0, pushed: 0 });
+      return NextResponse.json({ ok: true, alerts: 0, pushed: 0, policy });
     }
 
     const body = unsent
@@ -73,6 +75,7 @@ export async function GET(request: Request) {
       pushed: push.sent,
       failed: push.failed,
       disabled: push.disabled,
+      policy,
     });
   } catch (error) {
     console.error("ZYRON_PUSH_DISPATCH_ERROR", error);
