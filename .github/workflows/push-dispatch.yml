@@ -1,0 +1,27 @@
+name: ZYRON proactive push
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger proactive push dispatch
+        shell: bash
+        run: |
+          OIDC_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=zyron-push"
+          TOKEN=$(curl -fsSL \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "$OIDC_URL" \
+            | python -c 'import json,sys; print(json.load(sys.stdin)["value"])')
+          curl -fsSL \
+            -H "Authorization: Bearer ${TOKEN}" \
+            https://zyron-five.vercel.app/api/push/dispatch
