@@ -5,6 +5,14 @@ import "./dashboard.css";
 
 type CheckResult = { configured: boolean; reachable: boolean | null; latencyMs: number | null };
 type CalendarEvent = { id: string; title: string; start: string; end: string; allDay: boolean; location: string | null; htmlLink: string | null };
+type GoogleStatus = {
+  configured: boolean;
+  connected: boolean;
+  email?: string | null;
+  scope?: string | null;
+  updatedAt?: string | null;
+  error?: string;
+};
 type DashboardData = {
   summary: { pendingTasks: number; completedTasks: number; availableTools: number; plannedTools: number; activeGoals: number };
   health: { ok: boolean; version: string; time: string; checks: Record<string, CheckResult> };
@@ -14,6 +22,9 @@ type DashboardData = {
   calendar: { connected: boolean; events: CalendarEvent[]; error: string | null };
   tools: Array<{ name: string; description: string; status: "available" | "needs_configuration" | "planned" }>;
 };
+
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
 function checkLabel(check: CheckResult) {
   if (!check.configured) return "Sin configurar";
@@ -27,18 +38,33 @@ function eventTime(event: CalendarEvent) {
   return new Date(event.start).toLocaleString("es-ES", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function hasScope(scope: string | null | undefined, required: string) {
+  return Boolean(scope?.split(/\s+/).includes(required));
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [error, setError] = useState("");
   async function load() {
     setError("");
     try {
-      const response = await fetch("/api/dashboard", { cache: "no-store" });
-      if (!response.ok) throw new Error();
-      setData((await response.json()) as DashboardData);
-    } catch { setError("No he podido cargar el panel de control."); }
+      const [dashboardResponse, googleResponse] = await Promise.all([
+        fetch("/api/dashboard", { cache: "no-store" }),
+        fetch("/api/google/status", { cache: "no-store" }),
+      ]);
+      if (!dashboardResponse.ok) throw new Error();
+      setData((await dashboardResponse.json()) as DashboardData);
+      setGoogle(googleResponse.ok ? ((await googleResponse.json()) as GoogleStatus) : null);
+    } catch {
+      setError("No he podido cargar el panel de control.");
+    }
   }
   useEffect(() => { void load(); }, []);
+
+  const calendarAuthorized = hasScope(google?.scope, CALENDAR_SCOPE);
+  const gmailAuthorized = hasScope(google?.scope, GMAIL_SCOPE);
+  const googleActionLabel = !google?.connected ? "Conectar Google" : gmailAuthorized ? "Reautorizar Google" : "Autorizar Gmail";
 
   return (
     <main className="shell">
@@ -50,6 +76,25 @@ export default function DashboardPage() {
         {data && <>
           <div className={`healthBanner ${data.health.ok ? "healthy" : "degraded"}`}><div><strong>{data.health.ok ? "Todos los sistemas operativos" : "Sistema parcialmente degradado"}</strong><span>Núcleo {data.health.version} · {new Date(data.health.time).toLocaleString("es-ES")}</span></div><button className="ghostButton" type="button" onClick={() => void load()}>Comprobar</button></div>
           <div className="serviceGrid">{Object.entries(data.health.checks).map(([name, check]) => <div className="serviceCard" key={name}><i className={!check.configured || check.reachable === false ? "bad" : "good"} /><div><strong>{name}</strong><span>{checkLabel(check)}</span></div></div>)}</div>
+
+          <section className="dashboardBlock">
+            <div className="blockHeader"><h2>Google</h2><a href="/api/google/connect">{googleActionLabel}</a></div>
+            <div className="compactRow">
+              <span>G</span>
+              <div>
+                <strong>{google?.connected ? (google.email || "Cuenta Google conectada") : "Google no conectado"}</strong>
+                <small>
+                  {!google?.configured
+                    ? "OAuth de Google no está configurado."
+                    : !google?.connected
+                      ? "Conecta tu cuenta para usar Calendar y Gmail."
+                      : `Calendar: ${calendarAuthorized ? "autorizado" : "falta permiso"} · Gmail: ${gmailAuthorized ? "lectura autorizada" : "falta autorizar"}`}
+                </small>
+              </div>
+            </div>
+            {google?.connected && !gmailAuthorized && <div className="mutedBox">Gmail está preparado, pero falta una autorización de Google. Pulsa “Autorizar Gmail” y acepta el permiso de lectura.</div>}
+          </section>
+
           <div className="metricGrid"><div className="metricCard"><strong>{data.summary.pendingTasks}</strong><span>Tareas pendientes</span></div><div className="metricCard"><strong>{data.summary.completedTasks}</strong><span>Tareas completadas</span></div><div className="metricCard"><strong>{data.summary.activeGoals}</strong><span>Objetivos activos</span></div><div className="metricCard"><strong>{data.summary.availableTools}</strong><span>Capacidades activas</span></div></div>
 
           <section className="dashboardBlock"><div className="blockHeader"><h2>Próximos eventos</h2><a href="/api/calendar/events">Abrir datos</a></div>{data.calendar.error ? <div className="mutedBox">{data.calendar.error}</div> : data.calendar.events.length ? data.calendar.events.map((event) => <div className="compactRow" key={event.id}><span>◷</span><div><strong>{event.title}</strong><small>{eventTime(event)}{event.location ? ` · ${event.location}` : ""}</small></div></div>) : <div className="mutedBox">No hay eventos próximos en los siguientes siete días.</div>}</section>
