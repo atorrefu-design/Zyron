@@ -220,7 +220,7 @@ export async function claimPushDispatchWindow() {
     VALUES (1, NOW())
     ON CONFLICT (id) DO UPDATE SET last_dispatch_at = NOW()
     WHERE zyron_push_state.last_dispatch_at IS NULL
-       OR zyron_push_state.last_dispatch_at < NOW() - INTERVAL '20 minutes'
+       OR zyron_push_state.last_dispatch_at < NOW() - INTERVAL '10 minutes'
     RETURNING last_dispatch_at
   `;
   return rows.length > 0;
