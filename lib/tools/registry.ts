@@ -32,6 +32,7 @@ function allConfigured(...variables: string[]) {
 export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
   const databaseReady = configured("DATABASE_URL", "POSTGRES_URL");
   const googleReady = allConfigured("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ZYRON_AUTH_SECRET");
+  const pushReady = databaseReady && configured("ZYRON_AUTH_SECRET");
 
   return {
     tasks: {
@@ -107,11 +108,12 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     },
     notifications: {
       name: "notifications",
-      description: "Envía avisos proactivos al dispositivo del propietario.",
-      permissions: ["owner_session", "push"],
+      description: "Envía avisos proactivos mediante Web Push al dispositivo del propietario, incluso con ZYRON cerrado.",
+      permissions: ["owner_session", "push", "service_worker"],
       canWrite: true,
       requiresConfirmation: false,
-      status: "planned",
+      status: pushReady ? "available" : "needs_configuration",
+      configurationHint: "Requiere base de datos y ZYRON_AUTH_SECRET para proteger las claves push.",
     },
   };
 }
