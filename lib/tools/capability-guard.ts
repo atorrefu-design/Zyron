@@ -34,6 +34,7 @@ export function unavailableCapabilityReply(message: string) {
     planner: "Planificador",
     calendar: "Google Calendar",
     gmail: "Gmail",
+    proactive: "Proactividad",
     maps: "Mapas y rutas",
     notifications: "Notificaciones",
   };
