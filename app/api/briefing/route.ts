@@ -4,6 +4,12 @@ import { getZyronHealth } from "../../../lib/health";
 import { buildDailyPlan, formatDailyPlan } from "../../../lib/tools/planner";
 import { getZyronTools } from "../../../lib/tools/registry";
 import { listCalendarEvents } from "../../../lib/google/calendar";
+import {
+  compactSender,
+  getInboxUnreadCount,
+  listGmailMessages,
+  prioritizeGmailMessages,
+} from "../../../lib/google/gmail";
 
 export const runtime = "nodejs";
 
@@ -32,19 +38,56 @@ export async function GET() {
     const tools = getZyronTools();
     let calendarEvents: Awaited<ReturnType<typeof listCalendarEvents>> = [];
     let calendarError: string | null = null;
+    let gmailError: string | null = null;
+    let unreadCount: number | null = null;
+    let priorityMail: Array<{
+      from: string;
+      subject: string;
+      summary: string;
+      reason: string;
+      priority: "alta" | "media" | "baja";
+    }> = [];
 
-    try {
-      const now = new Date();
-      const end = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-      calendarEvents = await listCalendarEvents({ timeMin: now, timeMax: end, maxResults: 8 });
-    } catch (error) {
-      calendarError = error instanceof Error ? error.message : "calendar_error";
-    }
+    await Promise.all([
+      (async () => {
+        try {
+          const now = new Date();
+          const end = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+          calendarEvents = await listCalendarEvents({ timeMin: now, timeMax: end, maxResults: 8 });
+        } catch (error) {
+          calendarError = error instanceof Error ? error.message : "calendar_error";
+        }
+      })(),
+      (async () => {
+        try {
+          const [count, messages] = await Promise.all([
+            getInboxUnreadCount(),
+            listGmailMessages("in:inbox newer_than:3d", 20),
+          ]);
+          unreadCount = count;
+          const priorities = await prioritizeGmailMessages(messages);
+          const byId = new Map(priorities.map((item) => [item.id, item]));
+          priorityMail = messages
+            .map((message) => ({ message, priority: byId.get(message.id) }))
+            .filter((item) => item.priority?.priority === "alta")
+            .slice(0, 4)
+            .map((item) => ({
+              from: compactSender(item.message.from),
+              subject: item.message.subject,
+              summary: item.priority?.summary || item.message.snippet,
+              reason: item.priority?.reason || "Conviene revisarlo.",
+              priority: item.priority?.priority || "baja",
+            }));
+        } catch (error) {
+          gmailError = error instanceof Error ? error.message : "gmail_error";
+        }
+      })(),
+    ]);
 
     const missingContext = [
       calendarError ? "agenda" : null,
       tools.maps.status !== "available" ? "tráfico y desplazamientos" : null,
-      tools.gmail.status !== "available" ? "correo" : null,
+      gmailError ? "correo" : null,
     ].filter((item): item is string => Boolean(item));
 
     const limitations = missingContext.length
@@ -57,10 +100,21 @@ export async function GET() {
         ? `Agenda próximas 48 h:\n${calendarEvents.map(formatCalendarEvent).join("\n")}`
         : "Agenda próximas 48 h: no hay eventos programados.";
 
+    const mail = gmailError
+      ? "Correo: Gmail está conectado, pero no he podido preparar la prioridad de la bandeja."
+      : priorityMail.length
+        ? [
+            `Correo: ${unreadCount ?? 0} sin leer en la bandeja. Entre los 20 recientes revisados, estos requieren más atención:`,
+            ...priorityMail.map((item) => `• ${item.from} · ${item.subject}\n  ${item.summary}\n  ${item.reason}`),
+          ].join("\n")
+        : `Correo: ${unreadCount ?? 0} sin leer en la bandeja. No detecto correos de alta prioridad entre los 20 recientes revisados.`;
+
     const reply = [
       "Briefing de ZYRON",
       "",
       agenda,
+      "",
+      mail,
       "",
       formatDailyPlan(plan),
       "",
@@ -75,6 +129,9 @@ export async function GET() {
         plan,
         calendarEvents,
         calendarConnected: !calendarError,
+        gmailConnected: !gmailError,
+        unreadCount,
+        priorityMail,
         health,
         recentActions,
         limitations: missingContext,
