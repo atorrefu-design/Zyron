@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import "./dashboard.css";
 
-type CheckResult = { configured: boolean; reachable: boolean | null; latencyMs: number | null };
+type CheckResult = { configured: boolean; reachable: boolean | null; latencyMs: number | null; detail?: string };
 type CalendarEvent = { id: string; title: string; start: string; end: string; allDay: boolean; location: string | null; htmlLink: string | null };
 type GoogleStatus = {
   configured: boolean;
@@ -28,7 +28,15 @@ const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
 function checkLabel(check: CheckResult) {
   if (!check.configured) return "Sin configurar";
-  if (check.reachable === false) return "No responde";
+  if (check.reachable === false) {
+    const detail = check.detail || "";
+    if (detail === "timeout") return "Tiempo de espera agotado";
+    if (/http_401/.test(detail)) return "API key rechazada · 401";
+    if (/http_403/.test(detail)) return "Acceso denegado · 403";
+    if (/http_429/.test(detail)) return "Límite temporal · 429";
+    if (/http_5\d\d/.test(detail)) return "Servicio externo con error";
+    return "No responde";
+  }
   if (check.reachable === true) return check.latencyMs === null ? "Operativo" : `Operativo · ${check.latencyMs} ms`;
   return "Configurado";
 }
@@ -75,7 +83,7 @@ export default function DashboardPage() {
         {!data && !error && <div className="taskEmpty">Cargando sistemas…</div>}
         {data && <>
           <div className={`healthBanner ${data.health.ok ? "healthy" : "degraded"}`}><div><strong>{data.health.ok ? "Todos los sistemas operativos" : "Sistema parcialmente degradado"}</strong><span>Núcleo {data.health.version} · {new Date(data.health.time).toLocaleString("es-ES")}</span></div><button className="ghostButton" type="button" onClick={() => void load()}>Comprobar</button></div>
-          <div className="serviceGrid">{Object.entries(data.health.checks).map(([name, check]) => <div className="serviceCard" key={name}><i className={!check.configured || check.reachable === false ? "bad" : "good"} /><div><strong>{name}</strong><span>{checkLabel(check)}</span></div></div>)}</div>
+          <div className="serviceGrid">{Object.entries(data.health.checks).map(([name, check]) => <div className="serviceCard" key={name}><i className={!check.configured || check.reachable === false ? "bad" : "good"} /><div><strong>{name}</strong><span>{checkLabel(check)}</span>{name === "mem0" && check.reachable === false && check.detail && <small>{check.detail}</small>}</div></div>)}</div>
 
           <section className="dashboardBlock">
             <div className="blockHeader"><h2>Google</h2><a href="/api/google/connect">{googleActionLabel}</a></div>
