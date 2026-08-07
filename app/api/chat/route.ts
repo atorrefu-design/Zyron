@@ -2,6 +2,12 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../../../lib/db";
 import { listCalendarEvents, type ZyronCalendarEvent } from "../../../lib/google/calendar";
+import {
+  connectionHasScope,
+  getGoogleAccessToken,
+  getGoogleConnection,
+  GMAIL_READONLY_SCOPE,
+} from "../../../lib/google/oauth";
 import { toolSummary } from "../../../lib/tools/registry";
 
 export const runtime = "nodejs";
@@ -9,6 +15,7 @@ export const runtime = "nodejs";
 const USER_ID = "aaron";
 const AGENT_ID = "zyron";
 const MADRID_TIME_ZONE = "Europe/Madrid";
+const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type MemoryResult = { memory?: string };
@@ -19,6 +26,33 @@ type TaskIntent =
   | { action: "delete"; query: string }
   | { action: "none"; query: "" };
 type CalendarIntent = "today" | "tomorrow" | "week" | "next" | null;
+type GmailIntent = {
+  mode: "recent" | "unread" | "important" | "sender";
+  query: string;
+  today: boolean;
+  label: string;
+} | null;
+type GmailHeader = { name: string; value: string };
+type GmailMessage = {
+  id: string;
+  threadId: string;
+  subject: string;
+  from: string | null;
+  snippet: string;
+  unread: boolean;
+  starred: boolean;
+  important: boolean;
+  internalDate: string | null;
+};
+type GmailListResponse = { messages?: Array<{ id: string; threadId: string }> };
+type GmailMessageResponse = {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+  snippet?: string;
+  internalDate?: string;
+  payload?: { headers?: GmailHeader[] };
+};
 
 function getOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -77,9 +111,41 @@ function matchingTasks(query: string, tasks: Awaited<ReturnType<typeof listTasks
   return tasks.filter((task) => normalize(task.title).includes(needle) || needle.includes(normalize(task.title)));
 }
 
+function detectGmailIntent(message: string): GmailIntent {
+  const clean = normalize(message);
+  const asksGmail = /\b(correo|correos|email|emails|gmail|bandeja de entrada)\b/.test(clean);
+  if (!asksGmail) return null;
+
+  const today = /\bhoy\b/.test(clean);
+  const period = today ? "newer_than:2d" : "newer_than:14d";
+
+  if (/\b(no leido|no leidos|sin leer|pendientes de leer|pendiente de leer)\b/.test(clean)) {
+    return { mode: "unread", query: `in:inbox ${period} is:unread`, today, label: today ? "sin leer de hoy" : "sin leer recientes" };
+  }
+
+  if (/\b(importante|importantes|prioritario|prioritarios|urgente|urgentes|destacado|destacados)\b/.test(clean)) {
+    return { mode: "important", query: `in:inbox ${period}`, today, label: today ? "importantes de hoy" : "importantes recientes" };
+  }
+
+  const senderMatch = message.match(/\b(?:correo(?:s)?|email(?:s)?)\b.*?\b(?:de|desde)\s+([^?.!,]+)$/i);
+  const sender = senderMatch?.[1]?.trim();
+  if (sender && !/^(hoy|ayer|esta semana|la semana|los ultimos dias|los últimos dias)$/i.test(sender)) {
+    const safeSender = sender.replace(/["\\]/g, " ").trim();
+    return {
+      mode: "sender",
+      query: `in:inbox newer_than:30d from:"${safeSender}"`,
+      today,
+      label: `de ${sender}`,
+    };
+  }
+
+  return { mode: "recent", query: `in:inbox ${period}`, today, label: today ? "de hoy" : "recientes" };
+}
+
 function detectCalendarIntent(message: string): CalendarIntent {
   const clean = normalize(message);
-  const asksCalendar = /\b(agenda|calendario|evento|eventos|reunion|reuniones|cita|citas|que tengo|proximo compromiso)\b/.test(clean);
+  const asksCalendar = /\b(agenda|calendario|evento|eventos|reunion|reuniones|cita|citas|proximo compromiso)\b/.test(clean)
+    || /\bque tengo (hoy|manana|esta semana)\b/.test(clean);
   if (!asksCalendar) return null;
   if (/\bmanana\b/.test(clean)) return "tomorrow";
   if (/\b(esta semana|proximos dias|semana)\b/.test(clean)) return "week";
@@ -143,6 +209,111 @@ async function executeCalendarIntent(intent: Exclude<CalendarIntent, null>) {
     ? `${intent === "next" ? "Tu próximo evento es:" : `Tienes ${selected.length} evento${selected.length === 1 ? "" : "s"} ${label}:`}\n${selected.slice(0, 12).map((event, index) => `${index + 1}. ${formatCalendarEvent(event)}`).join("\n")}`
     : `No tienes eventos en Google Calendar ${label}.`;
   return { reply, action: "calendar_read", tool: "calendar", events: selected };
+}
+
+function gmailHeader(headers: GmailHeader[] | undefined, name: string) {
+  return headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? null;
+}
+
+async function gmailFetch<T>(path: string, accessToken: string): Promise<T> {
+  const response = await fetch(`${GMAIL_API}${path}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`gmail_api_${response.status}`);
+  return response.json() as Promise<T>;
+}
+
+async function listGmailMessages(query: string, maxResults = 15): Promise<GmailMessage[]> {
+  const accessToken = await getGoogleAccessToken();
+  const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
+  const listed = await gmailFetch<GmailListResponse>(`/messages?${params.toString()}`, accessToken);
+  const refs = listed.messages ?? [];
+
+  return Promise.all(refs.map(async (ref) => {
+    const metadata = new URLSearchParams({ format: "metadata" });
+    ["Subject", "From", "Date"].forEach((name) => metadata.append("metadataHeaders", name));
+    const message = await gmailFetch<GmailMessageResponse>(`/messages/${encodeURIComponent(ref.id)}?${metadata.toString()}`, accessToken);
+    const labels = message.labelIds ?? [];
+    return {
+      id: message.id,
+      threadId: message.threadId,
+      subject: gmailHeader(message.payload?.headers, "Subject") || "(Sin asunto)",
+      from: gmailHeader(message.payload?.headers, "From"),
+      snippet: message.snippet ?? "",
+      unread: labels.includes("UNREAD"),
+      starred: labels.includes("STARRED"),
+      important: labels.includes("IMPORTANT"),
+      internalDate: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null,
+    };
+  }));
+}
+
+function compactSender(value: string | null) {
+  if (!value) return "Remitente desconocido";
+  return value.replace(/\s*<[^>]+>\s*$/, "").replace(/^"|"$/g, "").trim() || value;
+}
+
+function formatGmailMessage(message: GmailMessage) {
+  const flags = `${message.starred ? "⭐ " : ""}${message.unread ? "● " : ""}`;
+  const snippet = message.snippet.trim().replace(/\s+/g, " ").slice(0, 140);
+  return `${flags}${compactSender(message.from)} · ${message.subject}${snippet ? `\n   ${snippet}` : ""}`;
+}
+
+async function executeGmailIntent(intent: Exclude<GmailIntent, null>) {
+  const connection = await getGoogleConnection();
+  if (!connection) {
+    return {
+      reply: "Google todavía no está conectado. Abre el Panel y conecta tu cuenta antes de pedirme correos.",
+      action: "gmail_not_connected",
+      tool: "gmail",
+    };
+  }
+  if (!connectionHasScope(connection.scope, GMAIL_READONLY_SCOPE)) {
+    return {
+      reply: "Tu cuenta de Google está conectada, pero todavía no me has concedido permiso de lectura de Gmail. Vuelve a autorizar Google desde el Panel. Solo solicitaré lectura, no envío ni borrado.",
+      action: "gmail_scope_missing",
+      tool: "gmail",
+      reauthorize: true,
+    };
+  }
+
+  let messages = await listGmailMessages(intent.query);
+  if (intent.today) {
+    const today = madridDateKey(new Date());
+    messages = messages.filter((message) => message.internalDate && madridDateKey(message.internalDate) === today);
+  }
+  if (intent.mode === "important") {
+    messages = messages.filter((message) => message.important || message.starred);
+  }
+
+  await safelyRecordAction(
+    "gmail_read",
+    `Consultó correos ${intent.label}: ${messages.length} encontrados.`,
+    { mode: intent.mode, count: messages.length, today: intent.today },
+    "gmail",
+  );
+
+  if (!messages.length) {
+    const detail = intent.mode === "important" ? " marcados por Gmail como importantes o destacados" : "";
+    return {
+      reply: `No encuentro correos${detail} ${intent.label}.`,
+      action: "gmail_read",
+      tool: "gmail",
+      messages: [],
+    };
+  }
+
+  const visible = messages.slice(0, 8);
+  const prefix = intent.mode === "important"
+    ? `He encontrado ${messages.length} correo${messages.length === 1 ? "" : "s"} marcado${messages.length === 1 ? "" : "s"} como importante${messages.length === 1 ? "" : "s"} o destacado${messages.length === 1 ? "" : "s"} ${intent.label}:`
+    : `He encontrado ${messages.length} correo${messages.length === 1 ? "" : "s"} ${intent.label}:`;
+  return {
+    reply: `${prefix}\n${visible.map((message, index) => `${index + 1}. ${formatGmailMessage(message)}`).join("\n")}`,
+    action: "gmail_read",
+    tool: "gmail",
+    messages: visible,
+  };
 }
 
 function deterministicTaskIntent(message: string): TaskIntent {
@@ -279,6 +450,22 @@ export async function POST(request: Request) {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
     if (!lastUserMessage) return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
 
+    const gmailIntent = detectGmailIntent(lastUserMessage);
+    if (gmailIntent) {
+      try {
+        const result = await executeGmailIntent(gmailIntent);
+        void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: result.reply }]).catch(() => undefined);
+        return NextResponse.json(result);
+      } catch (error) {
+        console.error("ZYRON_GMAIL_CHAT_ERROR", error);
+        return NextResponse.json({
+          reply: "No he podido leer Gmail ahora mismo. Si acabas de activar el acceso, vuelve a autorizar Google desde el Panel y prueba de nuevo.",
+          action: "gmail_read_failed",
+          tool: "gmail",
+        });
+      }
+    }
+
     const calendarIntent = detectCalendarIntent(lastUserMessage);
     if (calendarIntent) {
       try {
@@ -313,7 +500,7 @@ export async function POST(request: Request) {
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
         "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
-        "El motor de acciones gestiona las tareas y consulta Google Calendar antes de llegar a esta conversación. No afirmes haber ejecutado acciones sin confirmación del sistema.",
+        "El motor de acciones gestiona tareas y consulta Google Calendar y Gmail antes de llegar a esta conversación. No afirmes haber leído datos privados o ejecutado acciones si el sistema no te los ha proporcionado.",
         `Herramientas disponibles:\n${toolSummary()}`,
         `Recuerdos relevantes:\n${memoryContext}`,
       ].join("\n\n"),
