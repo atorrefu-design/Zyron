@@ -22,6 +22,8 @@ type ApiResponse = {
   error?: string;
 };
 
+type GeolocationErrorLike = { code?: number };
+
 const DESTINATION_KEY = "zyron-maps-destination";
 const ARRIVAL_KEY = "zyron-maps-arrival";
 const BUFFER_KEY = "zyron-maps-buffer";
@@ -135,8 +137,9 @@ export default function MapsPage() {
       setResult(data.route);
       setStatus("Ruta calculada con tráfico de Google. La ubicación exacta no se guarda en ZYRON.");
     } catch (error) {
-      const message = error instanceof GeolocationPositionError
-        ? error.code === error.PERMISSION_DENIED
+      const locationError = error as GeolocationErrorLike;
+      const message = typeof locationError?.code === "number"
+        ? locationError.code === 1
           ? "Necesito permiso de ubicación para calcular desde donde estás ahora."
           : "No he podido obtener tu ubicación actual."
         : error instanceof Error && error.message === "maps_not_configured"
