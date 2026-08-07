@@ -62,9 +62,25 @@ export async function computeDrivingRoute(options: {
   departureTime?: Date;
 }): Promise<DrivingRouteEstimate> {
   const now = new Date();
-  const requestedDeparture = options.departureTime && options.departureTime.getTime() > now.getTime() + 30_000
+  const futureDeparture = options.departureTime && options.departureTime.getTime() > now.getTime() + 60_000
     ? options.departureTime
-    : now;
+    : null;
+  const effectiveDeparture = futureDeparture ?? now;
+
+  const requestBody: Record<string, unknown> = {
+    origin: waypoint(options.origin),
+    destination: waypoint(options.destination),
+    travelMode: "DRIVE",
+    routingPreference: "TRAFFIC_AWARE_OPTIMAL",
+    trafficModel: "BEST_GUESS",
+    languageCode: "es-ES",
+    units: "METRIC",
+  };
+
+  // Si queremos salir ahora, Google recomienda omitir departureTime: la API usa
+  // automáticamente la hora real de recepción. Enviar new Date() puede llegar unos
+  // milisegundos tarde y Google lo rechaza como una hora en el pasado.
+  if (futureDeparture) requestBody.departureTime = futureDeparture.toISOString();
 
   const response = await fetch(ROUTES_URL, {
     method: "POST",
@@ -73,16 +89,7 @@ export async function computeDrivingRoute(options: {
       "X-Goog-Api-Key": mapsApiKey(),
       "X-Goog-FieldMask": "routes.duration,routes.staticDuration,routes.distanceMeters",
     },
-    body: JSON.stringify({
-      origin: waypoint(options.origin),
-      destination: waypoint(options.destination),
-      travelMode: "DRIVE",
-      routingPreference: "TRAFFIC_AWARE_OPTIMAL",
-      trafficModel: "BEST_GUESS",
-      departureTime: requestedDeparture.toISOString(),
-      languageCode: "es-ES",
-      units: "METRIC",
-    }),
+    body: JSON.stringify(requestBody),
     cache: "no-store",
   });
 
@@ -96,8 +103,8 @@ export async function computeDrivingRoute(options: {
   const durationSeconds = seconds(route?.duration);
   if (!route || durationSeconds === null) throw new Error("maps_route_unavailable");
   const staticDurationSeconds = seconds(route.staticDuration);
-  const departureTime = requestedDeparture.toISOString();
-  const arrivalTime = new Date(requestedDeparture.getTime() + durationSeconds * 1000).toISOString();
+  const departureTime = effectiveDeparture.toISOString();
+  const arrivalTime = new Date(effectiveDeparture.getTime() + durationSeconds * 1000).toISOString();
   const trafficDelaySeconds = staticDurationSeconds === null
     ? null
     : Math.max(0, durationSeconds - staticDurationSeconds);
