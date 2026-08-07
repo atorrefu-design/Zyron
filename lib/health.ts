@@ -68,11 +68,12 @@ export async function getZyronHealth(): Promise<ZyronHealth> {
     openai: { configured: Boolean(process.env.OPENAI_API_KEY), reachable: null, latencyMs: null },
     mem0,
     database,
+    maps: { configured: Boolean(process.env.GOOGLE_MAPS_API_KEY), reachable: null, latencyMs: null },
     ownerKey: { configured: Boolean(process.env.ZYRON_OWNER_KEY), reachable: null, latencyMs: null },
     authSecret: { configured: Boolean(process.env.ZYRON_AUTH_SECRET), reachable: null, latencyMs: null },
   } satisfies Record<string, CheckResult>;
 
   const required = Object.values(checks);
   const ok = required.every((check) => check.configured && check.reachable !== false);
-  return { ok, service: "zyron-core", version: "0.4.4", checks, time: new Date().toISOString() };
+  return { ok, service: "zyron-core", version: "0.5.0", checks, time: new Date().toISOString() };
 }
