@@ -15,12 +15,12 @@ export type ZyronHealth = {
   time: string;
 };
 
-async function timedCheck(check: () => Promise<void>): Promise<Pick<CheckResult, "reachable" | "latencyMs" | "detail">> {
+async function timedCheck(check: () => Promise<void>, timeoutMs = 4500): Promise<Pick<CheckResult, "reachable" | "latencyMs" | "detail">> {
   const startedAt = Date.now();
   try {
     await Promise.race([
       check(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 4500)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs)),
     ]);
     return { reachable: true, latencyMs: Date.now() - startedAt };
   } catch (error) {
@@ -45,15 +45,24 @@ async function checkDatabase(): Promise<CheckResult> {
 async function checkMem0(): Promise<CheckResult> {
   const apiKey = process.env.MEM0_API_KEY;
   if (!apiKey) return { configured: false, reachable: null, latencyMs: null };
+
+  // A health check should only verify that Mem0 is reachable and the API key is valid.
+  // Semantic search can invoke embedding/retrieval work and occasionally exceed a short
+  // health-check timeout even while the service itself is healthy, so use the lightweight
+  // paginated memory-list endpoint instead.
   const result = await timedCheck(async () => {
-    const response = await fetch("https://api.mem0.ai/v3/memories/search/", {
+    const response = await fetch("https://api.mem0.ai/v3/memories/?page=1&page_size=1", {
       method: "POST",
       headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "health-check", filters: { user_id: "aaron" }, top_k: 1 }),
+      body: JSON.stringify({ filters: { user_id: "aaron" } }),
       cache: "no-store",
     });
-    if (!response.ok) throw new Error(`http_${response.status}`);
-  });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`http_${response.status}${detail ? `:${detail.slice(0, 80)}` : ""}`);
+    }
+  }, 8000);
+
   return { configured: true, ...result };
 }
 
@@ -69,5 +78,5 @@ export async function getZyronHealth(): Promise<ZyronHealth> {
 
   const required = Object.values(checks);
   const ok = required.every((check) => check.configured && check.reachable !== false);
-  return { ok, service: "zyron-core", version: "0.4.1", checks, time: new Date().toISOString() };
+  return { ok, service: "zyron-core", version: "0.4.2", checks, time: new Date().toISOString() };
 }
