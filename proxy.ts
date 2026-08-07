@@ -5,6 +5,7 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
   "/api/google/callback",
+  "/api/push/dispatch",
   "/favicon.ico",
 ];
 
@@ -30,5 +31,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|robots.txt|sitemap.xml|manifest.webmanifest|icon.svg).*)"],
+  matcher: ["/((?!_next/static|_next/image|robots.txt|sitemap.xml|manifest.webmanifest|icon.svg|sw.js).*)"],
 };
