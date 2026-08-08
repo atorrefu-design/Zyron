@@ -1,0 +1,19 @@
+# Local environment secrets
+.env
+.env.*
+!.env.example
+
+# Native iPhone secrets and generated/custom voice models
+ios/ZYRONNative/Secrets.swift
+ios/ZYRONNative/*.ppn
+ios/ZYRONNative/*.pv
+
+# Xcode local state
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Next.js / Node local output
+node_modules/
+.next/
+.vercel/
