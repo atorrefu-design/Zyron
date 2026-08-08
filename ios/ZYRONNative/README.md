@@ -21,7 +21,8 @@ El backend expone referencias para que la app nativa y la web compartan reglas:
 - `POST /api/auth/native-login`: valida la clave privada del propietario una sola vez y devuelve una sesión Bearer de ZYRON.
 - `GET /api/voice/policy`: devuelve horario de voz/texto y tiempos de engagement.
 - `POST /api/voice/activation`: clasifica ejemplos de invocación durante desarrollo. La versión final de iPhone ejecuta esta decisión localmente para no depender de red.
-- `POST /api/realtime/call`: recibe la oferta SDP del iPhone y crea la llamada Realtime desde el servidor. La clave permanente de OpenAI no sale de Vercel.
+- `POST /api/realtime/native-call`: recibe la oferta SDP del iPhone. La app indica `audio` o `text` según la política horaria y el servidor crea la sesión Realtime sin exponer la clave permanente de OpenAI.
+- Los endpoints existentes `/api/chat` y `/api/places/search` son reutilizados por las herramientas de la conversación nativa.
 
 `proxy.ts` acepta tanto la cookie de la web como la sesión Bearer de la app nativa. El token nativo se guarda únicamente en Keychain con `AfterFirstUnlockThisDeviceOnly`.
 
@@ -29,12 +30,16 @@ La conversación permanece activa sin repetir `ZYRON` y vuelve a escucha pasiva 
 
 ## Swift ya preparado
 
-- `AudioSessionManager.swift`: sesión `playAndRecord` + `voiceChat`.
+- `AudioSessionManager.swift`: sesión `playAndRecord` + `voiceChat`, Bluetooth HFP, interrupciones, cambios de ruta y reinicio de servicios de audio.
 - `VoiceCommunicationPolicy.swift`: regla local 07:00–01:00 audio / 01:00–07:00 texto.
 - `VoiceEngagementClassifier.swift`: espejo local del clasificador de invocación.
 - `VoiceSessionCoordinator.swift`: estados passive → candidate → active → ending → passive e inactividad de 45 s.
+- `WakeWordDetector.swift`: adaptador local preparado para Porcupine y el modelo personalizado `ZYRON.ppn`.
 - `KeychainStore.swift`: almacenamiento seguro de la sesión nativa.
-- `NativeAPIClient.swift`: login, política y puente SDP hacia el backend existente.
+- `NativeAPIClient.swift`: login, política, Realtime nativo y acceso autenticado al núcleo y Google Places.
+- `RealtimeEvent.swift`: decodificación de eventos OpenAI Realtime y creación de eventos de cliente.
+- `RealtimeToolRouter.swift`: ejecuta `consultar_nucleo_zyron` y `buscar_lugares_reales` usando el backend existente y puede recibir la ubicación actual del iPhone.
+- `RealtimeConversationBridge.swift`: conecta eventos de la sesión Realtime con transcripciones, respuestas de texto, herramientas y el coordinador de conversación.
 
 ## Primera prueba en Xcode
 
@@ -44,9 +49,11 @@ La conversación permanece activa sin repetir `ZYRON` y vuelve a escucha pasiva 
 4. Importar los Swift de esta carpeta.
 5. Hacer login una sola vez con la clave privada de ZYRON y comprobar que la sesión queda en Keychain.
 6. Activar `AudioSessionManager.shared.activateForConversation()`.
-7. Crear el transporte WebRTC y enviar su oferta SDP mediante `NativeAPIClient.shared.createRealtimeCall(sdpOffer:)`.
+7. Añadir un transporte WebRTC nativo, conectar su data channel a `RealtimeConversationBridge` y enviar la oferta SDP mediante `NativeAPIClient.shared.createRealtimeCall(sdpOffer:)`.
 8. Instalar en el iPhone físico.
 9. Prueba decisiva: iniciar conversación, bloquear manualmente la pantalla y comprobar que ZYRON sigue escuchando y respondiendo.
+
+OpenAI recomienda WebRTC para clientes móviles. Por eso mantenemos WebRTC como transporte para el iPhone y dejamos WebSocket para integraciones de servidor.
 
 ## Wake word
 
