@@ -8,7 +8,8 @@ function friendlyVoiceError(detail: string, status: number) {
   if (detail === "openai_api_key_missing") return "Voz · falta OPENAI_API_KEY en Vercel";
   if (detail === "openai_api_key_invalid_format") return "Voz · OPENAI_API_KEY no contiene una clave de OpenAI";
   if (detail === "openai_api_key_rejected") return "Voz · OpenAI ha rechazado OPENAI_API_KEY";
-  if (detail === "openai_rate_limited") return "Voz · límite temporal de OpenAI alcanzado";
+  if (detail === "openai_quota_exhausted") return "Voz · la cuenta API de OpenAI no tiene cuota/crédito disponible";
+  if (detail === "openai_rate_limited") return "Voz · límite temporal de OpenAI alcanzado; prueba de nuevo en unos segundos";
   if (detail === "openai_service_unavailable") return "Voz · servicio de OpenAI no disponible ahora";
   return `Voz · TTS ${status}${detail ? ` · ${detail}` : ""}`;
 }
