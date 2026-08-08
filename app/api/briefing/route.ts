@@ -4,6 +4,7 @@ import { getZyronHealth } from "../../../lib/health";
 import { buildDailyPlan, formatDailyPlan } from "../../../lib/tools/planner";
 import { getZyronTools } from "../../../lib/tools/registry";
 import { listCalendarEvents } from "../../../lib/google/calendar";
+import { buildCommuteBriefing, type CommuteBriefing } from "../../../lib/commute-briefing";
 import {
   compactSender,
   getInboxUnreadCount,
@@ -39,6 +40,11 @@ export async function GET() {
     let calendarEvents: Awaited<ReturnType<typeof listCalendarEvents>> = [];
     let calendarError: string | null = null;
     let gmailError: string | null = null;
+    let commuteError: string | null = null;
+    let commute: CommuteBriefing = {
+      state: "not_configured",
+      text: "Movilidad: todavía no hay una ruta habitual guardada.",
+    };
     let unreadCount: number | null = null;
     let priorityMail: Array<{
       from: string;
@@ -82,11 +88,22 @@ export async function GET() {
           gmailError = error instanceof Error ? error.message : "gmail_error";
         }
       })(),
+      (async () => {
+        try {
+          commute = await buildCommuteBriefing();
+        } catch (error) {
+          commuteError = error instanceof Error ? error.message : "commute_error";
+          commute = {
+            state: "not_configured",
+            text: "Movilidad: no he podido calcular ahora mismo la previsión de tu ruta habitual.",
+          };
+        }
+      })(),
     ]);
 
     const missingContext = [
       calendarError ? "agenda" : null,
-      tools.maps.status !== "available" ? "tráfico y desplazamientos" : null,
+      tools.maps.status !== "available" || commuteError ? "tráfico y desplazamientos" : null,
       gmailError ? "correo" : null,
     ].filter((item): item is string => Boolean(item));
 
@@ -114,6 +131,8 @@ export async function GET() {
       "",
       agenda,
       "",
+      commute.text,
+      "",
       mail,
       "",
       formatDailyPlan(plan),
@@ -129,6 +148,7 @@ export async function GET() {
         plan,
         calendarEvents,
         calendarConnected: !calendarError,
+        commute,
         gmailConnected: !gmailError,
         unreadCount,
         priorityMail,
