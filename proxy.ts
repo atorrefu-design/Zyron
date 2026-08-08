@@ -13,6 +13,11 @@ function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+function isTimeChatMessage(value: string) {
+  const clean = normalize(value).replace(/\s+/g, " ").trim();
+  return /\b(que hora es|que hora tienes|dime la hora|hora actual|hora es ahora)\b/.test(clean);
+}
+
 function isMobilityChatMessage(value: string) {
   const clean = normalize(value);
   const explicitMobility = /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
@@ -24,7 +29,7 @@ function isMobilityChatMessage(value: string) {
   return explicitMobility || commuteArrival || timedDeparture || routineArrival || routineAddress;
 }
 
-async function mobilityRewrite(request: NextRequest) {
+async function chatRewrite(request: NextRequest) {
   if (request.nextUrl.pathname !== "/api/chat" || request.method !== "POST") return null;
   try {
     const body = (await request.clone().json()) as {
@@ -34,11 +39,18 @@ async function mobilityRewrite(request: NextRequest) {
       .reverse()
       .find((item) => item.role === "user" && typeof item.content === "string")
       ?.content;
-    if (!message || !isMobilityChatMessage(message)) return null;
+    if (!message) return null;
 
     const url = request.nextUrl.clone();
-    url.pathname = "/api/maps/chat";
-    return NextResponse.rewrite(url);
+    if (isTimeChatMessage(message)) {
+      url.pathname = "/api/time";
+      return NextResponse.rewrite(url);
+    }
+    if (isMobilityChatMessage(message)) {
+      url.pathname = "/api/maps/chat";
+      return NextResponse.rewrite(url);
+    }
+    return null;
   } catch {
     return null;
   }
@@ -55,7 +67,7 @@ export async function proxy(request: NextRequest) {
   const authenticated = await verifyOwnerSession(token);
 
   if (authenticated) {
-    const rewrite = await mobilityRewrite(request);
+    const rewrite = await chatRewrite(request);
     return rewrite ?? NextResponse.next();
   }
 
