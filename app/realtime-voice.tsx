@@ -252,7 +252,7 @@ export default function RealtimeVoice({
 
       const audio = document.createElement("audio");
       audio.autoplay = true;
-      audio.playsInline = true;
+      audio.setAttribute("playsinline", "true");
       audio.volume = 1;
       audio.style.display = "none";
       document.body.appendChild(audio);
