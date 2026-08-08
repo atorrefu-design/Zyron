@@ -7,6 +7,13 @@ struct NativeLoginResponse: Decodable {
     let expiresIn: Int
 }
 
+struct NativeDeviceLocation: Codable {
+    let latitude: Double
+    let longitude: Double
+    let accuracy: Double
+    let capturedAt: String
+}
+
 struct VoicePolicyEnvelope: Decodable {
     struct Communication: Decodable {
         let timeZone: String
@@ -33,6 +40,22 @@ struct VoicePolicyEnvelope: Decodable {
 struct NativeRealtimeCall {
     let answerSDP: String
     let outputMode: ZyronResponseMode
+}
+
+private struct NativeChatRequest: Encodable {
+    struct Message: Encodable {
+        let role: String
+        let content: String
+    }
+
+    let messages: [Message]
+    let deviceLocation: NativeDeviceLocation?
+}
+
+private struct NativePlacesRequest: Encodable {
+    let query: String
+    let latitude: Double?
+    let longitude: Double?
 }
 
 enum NativeAPIError: LocalizedError {
@@ -113,8 +136,50 @@ final class NativeAPIClient {
         return NativeRealtimeCall(answerSDP: answer, outputMode: confirmedMode)
     }
 
+    func queryCore(_ query: String, deviceLocation: NativeDeviceLocation? = nil) async throws -> String {
+        let body = NativeChatRequest(
+            messages: [.init(role: "user", content: query)],
+            deviceLocation: deviceLocation
+        )
+        let data = try await postJSON(path: "/api/chat", body: body)
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reply = object["reply"] as? String,
+              !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NativeAPIError.invalidResponse
+        }
+        return reply
+    }
+
+    func searchPlaces(_ query: String, deviceLocation: NativeDeviceLocation? = nil) async throws -> String {
+        let body = NativePlacesRequest(
+            query: query,
+            latitude: deviceLocation?.latitude,
+            longitude: deviceLocation?.longitude
+        )
+        let data = try await postJSON(path: "/api/places/search", body: body)
+        guard let json = String(data: data, encoding: .utf8), !json.isEmpty else {
+            throw NativeAPIError.invalidResponse
+        }
+        return json
+    }
+
     func logout() {
         KeychainStore.clearOwnerSession()
+    }
+
+    private func postJSON<Body: Encodable>(path: String, body: Body) async throws -> Data {
+        var request = try authenticatedRequest(path: path)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let http = try validatedHTTP(response)
+        guard (200..<300).contains(http.statusCode) else {
+            throw NativeAPIError.server(status: http.statusCode, detail: serverDetail(data))
+        }
+        return data
     }
 
     private func authenticatedRequest(path: String) throws -> URLRequest {
