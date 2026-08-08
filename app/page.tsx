@@ -127,7 +127,7 @@ function textForSpeech(value: string) {
     .trim();
 }
 
-function chunkSpeech(value: string, maxLength = 220) {
+function chunkSpeech(value: string, maxLength = 1200) {
   const clean = textForSpeech(value);
   if (!clean) return [];
   const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
@@ -178,6 +178,9 @@ export default function Home() {
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const voiceConversationRef = useRef(false);
   const speechGenerationRef = useRef(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const ttsControllerRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const speechSupported = useMemo(() => typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition), []);
@@ -258,21 +261,42 @@ export default function Home() {
       voiceConversationRef.current = false;
       speechGenerationRef.current += 1;
       recognition.stop();
-      window.speechSynthesis?.cancel();
+      ttsControllerRef.current?.abort();
+      try { audioSourceRef.current?.stop(); } catch { /* already stopped */ }
+      void audioContextRef.current?.close().catch(() => undefined);
     };
   }, []);
 
-  function chooseSpanishVoice(): SpeechSynthesisVoice | undefined {
-    const voices = window.speechSynthesis.getVoices();
-    const spanish = voices.filter((voice) => voice.lang.toLowerCase().startsWith("es"));
-    return spanish.find((voice) => /m[oó]nica|marta|helena|female|mujer/i.test(voice.name))
-      || spanish.find((voice) => voice.lang.toLowerCase() === "es-es")
-      || spanish[0];
+  function ensureAudioContext() {
+    if (typeof window === "undefined" || !("AudioContext" in window)) return null;
+    if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+      audioContextRef.current = new AudioContext();
+    }
+    return audioContextRef.current;
+  }
+
+  async function unlockAudio() {
+    const context = ensureAudioContext();
+    if (!context) return false;
+    try {
+      if (context.state !== "running") await context.resume();
+      const buffer = context.createBuffer(1, 1, context.sampleRate);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.start(0);
+      return context.state === "running";
+    } catch {
+      return false;
+    }
   }
 
   function stopSpeech() {
     speechGenerationRef.current += 1;
-    window.speechSynthesis?.cancel();
+    ttsControllerRef.current?.abort();
+    ttsControllerRef.current = null;
+    try { audioSourceRef.current?.stop(); } catch { /* already stopped */ }
+    audioSourceRef.current = null;
     setSpeaking(false);
   }
 
@@ -291,12 +315,25 @@ export default function Home() {
     }, 300);
   }
 
-  function speak(text: string, resumeListening = false) {
-    if (!text || !("speechSynthesis" in window)) {
-      if (resumeListening) resumeVoiceConversation();
-      return;
-    }
+  async function playAudioBuffer(context: AudioContext, buffer: AudioBuffer, generation: number) {
+    await new Promise<void>((resolve) => {
+      if (speechGenerationRef.current !== generation) {
+        resolve();
+        return;
+      }
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      audioSourceRef.current = source;
+      source.onended = () => {
+        if (audioSourceRef.current === source) audioSourceRef.current = null;
+        resolve();
+      };
+      source.start(0);
+    });
+  }
 
+  async function speak(text: string, resumeListening = false) {
     const chunks = chunkSpeech(text);
     if (!chunks.length) {
       if (resumeListening) resumeVoiceConversation();
@@ -305,37 +342,44 @@ export default function Home() {
 
     stopSpeech();
     const generation = speechGenerationRef.current;
-    let index = 0;
-    setSpeaking(true);
-
-    const finish = () => {
-      if (speechGenerationRef.current !== generation) return;
-      setSpeaking(false);
+    const context = ensureAudioContext();
+    if (!context) {
       if (resumeListening) resumeVoiceConversation();
-    };
+      return;
+    }
 
-    const playNext = () => {
-      if (speechGenerationRef.current !== generation) return;
-      const chunk = chunks[index];
-      if (!chunk) {
-        finish();
-        return;
+    try {
+      if (context.state !== "running") await context.resume();
+      setSpeaking(true);
+
+      for (const chunk of chunks) {
+        if (speechGenerationRef.current !== generation) return;
+        const controller = new AbortController();
+        ttsControllerRef.current = controller;
+        const response = await fetch("/api/voice/speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: chunk }),
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`tts_${response.status}`);
+        const encoded = await response.arrayBuffer();
+        if (speechGenerationRef.current !== generation) return;
+        const decoded = await context.decodeAudioData(encoded.slice(0));
+        await playAudioBuffer(context, decoded, generation);
       }
-      const utterance = new SpeechSynthesisUtterance(chunk);
-      utterance.lang = "es-ES";
-      utterance.rate = 0.98;
-      utterance.pitch = 0.88;
-      utterance.voice = chooseSpanishVoice() || null;
-      utterance.onend = () => {
-        index += 1;
-        playNext();
-      };
-      utterance.onerror = () => finish();
-      window.speechSynthesis.speak(utterance);
-    };
-
-    window.speechSynthesis.resume();
-    playNext();
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        console.warn("ZYRON_VOICE_PLAYBACK_ERROR", error);
+      }
+    } finally {
+      if (speechGenerationRef.current === generation) {
+        ttsControllerRef.current = null;
+        setSpeaking(false);
+        if (resumeListening) resumeVoiceConversation();
+      }
+    }
   }
 
   async function runCalendarCommand(message: string, options?: { eventId?: string; confirmation?: boolean; originalMessage?: string }) {
@@ -433,7 +477,7 @@ export default function Home() {
         reply = data.reply.trim();
       }
       setMessages((current) => [...current, { role: "assistant", content: reply }]);
-      if (mode === "voice") speak(reply, true);
+      if (mode === "voice") void speak(reply, true);
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError"
         ? "La consulta ha tardado demasiado y la he detenido. Prueba de nuevo en unos segundos."
@@ -441,7 +485,7 @@ export default function Home() {
           ? `No he podido responder: ${error.message}.`
           : "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
       setMessages((current) => [...current, { role: "assistant", content: message }]);
-      if (mode === "voice") speak(message, true);
+      if (mode === "voice") void speak(message, true);
     } finally {
       window.clearTimeout(timeout);
       setLoading(false);
@@ -453,7 +497,7 @@ export default function Home() {
     void sendText(input, "text");
   }
 
-  function toggleListening() {
+  async function toggleListening() {
     const recognition = recognitionRef.current;
     if (!recognition || loading) return;
     try {
@@ -466,8 +510,7 @@ export default function Home() {
 
       voiceConversationRef.current = true;
       stopSpeech();
-      window.speechSynthesis?.resume();
-      window.speechSynthesis?.getVoices();
+      await unlockAudio();
       recognition.start();
     } catch {
       voiceConversationRef.current = false;
