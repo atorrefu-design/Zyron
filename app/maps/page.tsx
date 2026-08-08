@@ -63,6 +63,9 @@ function googleDiagnostic(value: string) {
 
 function routeErrorMessage(value: string) {
   if (value === "maps_not_configured") return "Falta configurar Google Routes en el servidor.";
+  if (/API key not valid|The key you provided is invalid|missing a valid API key/i.test(value)) {
+    return "La clave de Google Maps configurada en ZYRON no es válida. Crea una nueva API key en Google Cloud, restríngela a Routes API y sustituye GOOGLE_MAPS_API_KEY en Vercel.";
+  }
   if (/maps_routes_403/.test(value)) return "Google Routes ha rechazado la clave. Revisa que Routes API esté habilitada, que la clave permita Routes API y que el proyecto tenga facturación activa.";
   if (/maps_routes_400/.test(value)) {
     const diagnostic = googleDiagnostic(value);
