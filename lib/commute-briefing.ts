@@ -13,6 +13,8 @@ type CommuteRow = {
   enabled: boolean;
 };
 
+type RouteOrigin = { latitude: number; longitude: number };
+
 export type CommuteBriefing = {
   state: "not_configured" | "disabled" | "inactive_today" | "passed" | "planned";
   text: string;
@@ -20,6 +22,7 @@ export type CommuteBriefing = {
   recommendedDepartureTime?: string;
   durationMinutes?: number;
   trafficDelayMinutes?: number | null;
+  originMode?: "saved" | "current";
 };
 
 function madridParts(date: Date) {
@@ -69,7 +72,17 @@ function formatClock(value: Date | string) {
   }).format(typeof value === "string" ? new Date(value) : value);
 }
 
-export async function buildCommuteBriefing(now = new Date()): Promise<CommuteBriefing> {
+function validOrigin(value: RouteOrigin | undefined): value is RouteOrigin {
+  return Boolean(value)
+    && Number.isFinite(value?.latitude)
+    && Number.isFinite(value?.longitude)
+    && Number(value?.latitude) >= -90
+    && Number(value?.latitude) <= 90
+    && Number(value?.longitude) >= -180
+    && Number(value?.longitude) <= 180;
+}
+
+export async function buildCommuteBriefing(now = new Date(), originOverride?: RouteOrigin): Promise<CommuteBriefing> {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) return { state: "not_configured", text: "Movilidad: todavía no hay una ruta habitual guardada." };
 
@@ -105,8 +118,12 @@ export async function buildCommuteBriefing(now = new Date()): Promise<CommuteBri
     };
   }
 
+  const useCurrent = validOrigin(originOverride);
+  const origin = useCurrent
+    ? originOverride
+    : { latitude: Number(row.origin_lat), longitude: Number(row.origin_lng) };
   const estimate = await planDepartureForArrival({
-    origin: { latitude: Number(row.origin_lat), longitude: Number(row.origin_lng) },
+    origin,
     destination: { address: row.destination },
     arrivalTime: arrival,
     bufferMinutes: Number(row.buffer_minutes),
@@ -117,6 +134,7 @@ export async function buildCommuteBriefing(now = new Date()): Promise<CommuteBri
     : Math.max(0, Math.round(estimate.trafficDelaySeconds / 60));
   const trafficText = trafficDelayMinutes === null ? "" : ` Tráfico estimado: +${trafficDelayMinutes} min.`;
   const marginText = Number(row.buffer_minutes) > 0 ? ` con ${Number(row.buffer_minutes)} min de margen` : "";
+  const prefix = useCurrent ? "Desde tu ubicación actual" : "Movilidad";
 
   return {
     state: "planned",
@@ -124,6 +142,7 @@ export async function buildCommuteBriefing(now = new Date()): Promise<CommuteBri
     recommendedDepartureTime: estimate.recommendedDepartureTime,
     durationMinutes,
     trafficDelayMinutes,
-    text: `Movilidad: para llegar a ${row.destination} a las ${row.arrival_time}${marginText}, salida recomendada a las ${formatClock(estimate.recommendedDepartureTime)}. Trayecto: ${durationMinutes} min.${trafficText}`,
+    originMode: useCurrent ? "current" : "saved",
+    text: `${prefix}: para llegar a ${row.destination} a las ${row.arrival_time}${marginText}, salida recomendada a las ${formatClock(estimate.recommendedDepartureTime)}. Trayecto: ${durationMinutes} min.${trafficText}`,
   };
 }
