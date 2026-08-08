@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 protocol RealtimeEventSending: AnyObject {
     func sendRealtimeEvent(_ json: String)
 }
@@ -22,11 +23,11 @@ final class RealtimeConversationBridge {
     init(
         toolRouter: RealtimeToolRouter = .shared,
         sessionCoordinator: VoiceSessionCoordinator,
-        outputRouter: VoiceOutputRouter = .shared
+        outputRouter: VoiceOutputRouter? = nil
     ) {
         self.toolRouter = toolRouter
         self.sessionCoordinator = sessionCoordinator
-        self.outputRouter = outputRouter
+        self.outputRouter = outputRouter ?? .shared
     }
 
     func reset() {
