@@ -1,3 +1,5 @@
+import { getVoiceCommunicationPolicy } from "@/lib/voice-policy";
+
 export const runtime = "nodejs";
 
 const OPENAI_REALTIME_URL = "https://api.openai.com/v1/realtime/calls";
@@ -8,77 +10,85 @@ function getApiKey() {
   return apiKey;
 }
 
-const realtimeSession = {
-  type: "realtime",
-  model: "gpt-realtime-2.1-mini",
-  output_modalities: ["audio"],
-  instructions: [
-    "Eres ZYRON, el asistente personal de Aarón.",
-    "Habla siempre en español de España salvo que Aarón cambie de idioma.",
-    "Conversa como una persona, no como un locutor ni como un asistente telefónico.",
-    "Usa frases naturales, contracciones y pausas breves. Evita enumeraciones rígidas salvo que hagan falta.",
-    "Responde de forma breve por defecto para que la conversación avance rápido.",
-    "Empieza a responder en cuanto tengas suficiente contexto. No introduzcas la respuesta con fórmulas ceremoniosas.",
-    "Si Aarón te interrumpe, deja de hablar inmediatamente y escucha el nuevo turno.",
-    "No inventes datos privados, de agenda, correo, tareas, tráfico o memoria. Para esos datos usa consultar_nucleo_zyron.",
-    "Si una petición requiere datos actuales o privados de ZYRON, llama a consultar_nucleo_zyron y después contesta de forma natural, sin mencionar la herramienta.",
-    "Cuando Aarón pida tiendas, restaurantes, negocios, servicios o lugares físicos reales, usa buscar_lugares_reales. Nunca inventes una dirección ni afirmes que un negocio existe sin consultar esa herramienta.",
-    "Si Aarón indica una ciudad, barrio o zona, basta con esa ubicación para buscar lugares reales; no le exijas una calle concreta. Si dice cerca de mí, usa la búsqueda de lugares y deja que ZYRON aplique la ubicación actual del iPhone.",
-    "Si buscar_lugares_reales falla porque Google Places no está habilitado, no pidas una calle ni otra zona y no propongas repetir la misma búsqueda. Explica brevemente que la búsqueda real está temporalmente deshabilitada por configuración de Google Places.",
-    "Al hablar de resultados de lugares, di nombre y dirección de forma natural. No leas URLs salvo que Aarón las pida.",
-  ].join(" "),
-  audio: {
-    input: {
-      noise_reduction: { type: "near_field" },
-      turn_detection: {
-        type: "server_vad",
-        threshold: 0.45,
-        prefix_padding_ms: 250,
-        silence_duration_ms: 420,
-        create_response: true,
-        interrupt_response: true,
-      },
-    },
-    output: {
-      voice: "marin",
-    },
-  },
-  tools: [
-    {
-      type: "function",
-      name: "consultar_nucleo_zyron",
-      description: "Consulta el núcleo privado de ZYRON cuando Aarón pide datos personales o actuales: agenda, Gmail, tareas, briefing, tráfico, rutas, hora de salida, objetivos, memoria o estado del sistema. No usar para charla general ni para buscar negocios físicos.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "La petición completa de Aarón, conservando fechas, horas, nombres y contexto relevante.",
-          },
+function buildRealtimeSession() {
+  const communication = getVoiceCommunicationPolicy();
+  const quiet = communication.responseMode === "text";
+
+  return {
+    type: "realtime",
+    model: "gpt-realtime-2.1-mini",
+    output_modalities: [quiet ? "text" : "audio"],
+    instructions: [
+      "Eres ZYRON, el asistente personal de Aarón.",
+      "Habla siempre en español de España salvo que Aarón cambie de idioma.",
+      "Conversa como una persona, no como un locutor ni como un asistente telefónico.",
+      "Usa frases naturales, contracciones y pausas breves. Evita enumeraciones rígidas salvo que hagan falta.",
+      "Responde de forma breve por defecto para que la conversación avance rápido.",
+      "Empieza a responder en cuanto tengas suficiente contexto. No introduzcas la respuesta con fórmulas ceremoniosas.",
+      "Si Aarón te interrumpe, deja de hablar inmediatamente y escucha el nuevo turno.",
+      quiet
+        ? "Ahora estás dentro del horario silencioso de ZYRON, de 01:00 a 07:00 hora de Madrid. Responde únicamente mediante texto y no generes audio."
+        : "Ahora estás fuera del horario silencioso. Responde por audio de forma natural.",
+      "No inventes datos privados, de agenda, correo, tareas, tráfico o memoria. Para esos datos usa consultar_nucleo_zyron.",
+      "Si una petición requiere datos actuales o privados de ZYRON, llama a consultar_nucleo_zyron y después contesta de forma natural, sin mencionar la herramienta.",
+      "Cuando Aarón pida tiendas, restaurantes, negocios, servicios o lugares físicos reales, usa buscar_lugares_reales. Nunca inventes una dirección ni afirmes que un negocio existe sin consultar esa herramienta.",
+      "Si Aarón indica una ciudad, barrio o zona, basta con esa ubicación para buscar lugares reales; no le exijas una calle concreta. Si dice cerca de mí, usa la búsqueda de lugares y deja que ZYRON aplique la ubicación actual del iPhone.",
+      "Si buscar_lugares_reales falla porque Google Places no está habilitado, no pidas una calle ni otra zona y no propongas repetir la misma búsqueda. Explica brevemente que la búsqueda real está temporalmente deshabilitada por configuración de Google Places.",
+      "Al hablar de resultados de lugares, di nombre y dirección de forma natural. No leas URLs salvo que Aarón las pida.",
+    ].join(" "),
+    audio: {
+      input: {
+        noise_reduction: { type: "near_field" },
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.45,
+          prefix_padding_ms: 250,
+          silence_duration_ms: 420,
+          create_response: true,
+          interrupt_response: true,
         },
-        required: ["query"],
-        additionalProperties: false,
+      },
+      output: {
+        voice: "marin",
       },
     },
-    {
-      type: "function",
-      name: "buscar_lugares_reales",
-      description: "Busca negocios y lugares físicos reales en Google Places, con nombre y dirección verificados. Usar para tiendas, restaurantes, talleres, supermercados, servicios, locales y cualquier petición de lugares en una ciudad, barrio o cerca de la ubicación actual.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Qué lugar busca Aarón y la zona indicada, por ejemplo: tiendas de zapatillas en Badalona, farmacia cerca de mí o restaurantes japoneses en Sabadell.",
+    tools: [
+      {
+        type: "function",
+        name: "consultar_nucleo_zyron",
+        description: "Consulta el núcleo privado de ZYRON cuando Aarón pide datos personales o actuales: agenda, Gmail, tareas, briefing, tráfico, rutas, hora de salida, objetivos, memoria o estado del sistema. No usar para charla general ni para buscar negocios físicos.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "La petición completa de Aarón, conservando fechas, horas, nombres y contexto relevante.",
+            },
           },
+          required: ["query"],
+          additionalProperties: false,
         },
-        required: ["query"],
-        additionalProperties: false,
       },
-    },
-  ],
-  tool_choice: "auto",
-};
+      {
+        type: "function",
+        name: "buscar_lugares_reales",
+        description: "Busca negocios y lugares físicos reales en Google Places, con nombre y dirección verificados. Usar para tiendas, restaurantes, talleres, supermercados, servicios, locales y cualquier petición de lugares en una ciudad, barrio o cerca de la ubicación actual.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Qué lugar busca Aarón y la zona indicada, por ejemplo: tiendas de zapatillas en Badalona, farmacia cerca de mí o restaurantes japoneses en Sabadell.",
+            },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
+      },
+    ],
+    tool_choice: "auto",
+  };
+}
 
 function safeUpstreamError(status: number, raw: string) {
   let code = "";
@@ -115,6 +125,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "realtime_sdp_required" }, { status: 400 });
     }
 
+    const realtimeSession = buildRealtimeSession();
+    const responseMode = realtimeSession.output_modalities[0];
     const form = new FormData();
     form.set("sdp", sdp);
     form.set("session", JSON.stringify(realtimeSession));
@@ -144,6 +156,7 @@ export async function POST(request: Request) {
         "Content-Type": "application/sdp",
         "Cache-Control": "no-store",
         "X-Zyron-Realtime-Model": "gpt-realtime-2.1-mini",
+        "X-Zyron-Response-Mode": responseMode,
       },
     });
   } catch (error) {
