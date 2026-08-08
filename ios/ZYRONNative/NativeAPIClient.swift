@@ -80,6 +80,10 @@ final class NativeAPIClient {
 
     let baseURL = URL(string: "https://zyron-five.vercel.app")!
 
+    var hasOwnerSession: Bool {
+        KeychainStore.ownerSession() != nil
+    }
+
     private init() {}
 
     func login(ownerKey: String) async throws {
