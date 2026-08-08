@@ -16,18 +16,25 @@ final class RealtimeConversationBridge {
 
     private let toolRouter: RealtimeToolRouter
     private let sessionCoordinator: VoiceSessionCoordinator
+    private let outputRouter: VoiceOutputRouter
     private var handledToolCalls = Set<String>()
 
     init(
         toolRouter: RealtimeToolRouter = .shared,
-        sessionCoordinator: VoiceSessionCoordinator
+        sessionCoordinator: VoiceSessionCoordinator,
+        outputRouter: VoiceOutputRouter = .shared
     ) {
         self.toolRouter = toolRouter
         self.sessionCoordinator = sessionCoordinator
+        self.outputRouter = outputRouter
     }
 
     func reset() {
         handledToolCalls.removeAll()
+    }
+
+    func setConfirmedResponseMode(_ mode: ZyronResponseMode) {
+        outputRouter.setConfirmedResponseMode(mode)
     }
 
     func handle(_ rawEvent: String) {
@@ -62,6 +69,7 @@ final class RealtimeConversationBridge {
             let text = event.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
             sessionCoordinator.registerConversationActivity()
+            outputRouter.handleAssistantText(text)
             onAssistantText?(text)
 
         case "response.function_call_arguments.done":
