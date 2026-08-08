@@ -7,7 +7,18 @@ const TIME_ZONE = "Europe/Madrid";
 const HOUR = 60 * 60 * 1000;
 
 type SavedOrigin = { latitude: number; longitude: number };
-type SavedCommute = { origin: SavedOrigin; destination: string };
+type SavedCommute = {
+  origin: SavedOrigin;
+  destination: string;
+  arrivalTime: string;
+  weekdays: number[];
+};
+
+type DepartureRequest = {
+  hhmm: string;
+  day: string | null;
+  useHabitualDestination: boolean;
+};
 
 export type MobilityChatResult = {
   reply: string;
@@ -31,6 +42,15 @@ function formatClock(value: Date | string) {
   }).format(typeof value === "string" ? new Date(value) : value);
 }
 
+function formatDay(value: Date | string) {
+  return new Intl.DateTimeFormat("es-ES", {
+    timeZone: TIME_ZONE,
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+  }).format(typeof value === "string" ? new Date(value) : value);
+}
+
 function formatEventStart(value: string) {
   return new Intl.DateTimeFormat("es-ES", {
     timeZone: TIME_ZONE,
@@ -48,12 +68,14 @@ function madridParts(date: Date) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hourCycle: "h23",
   }).formatToParts(date);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  const weekdayNames: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
   return {
     year: Number(get("year")),
     month: Number(get("month")),
@@ -61,6 +83,7 @@ function madridParts(date: Date) {
     hour: Number(get("hour")),
     minute: Number(get("minute")),
     second: Number(get("second")),
+    weekday: weekdayNames[get("weekday")] || 0,
   };
 }
 
@@ -78,9 +101,17 @@ function madridDateAtTime(reference: Date, hhmm: string) {
   return candidate;
 }
 
+function madridDateKey(value: Date) {
+  const p = madridParts(value);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
 function asksMobility(message: string) {
   const clean = normalize(message);
-  return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+  const explicitMobility = /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+  const commuteArrival = /\b(llego|llegare|llegaria)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
+  const timedDeparture = /\b(salgo|saldre|saldria|salir)\b.*\blas?\s+\d{1,2}(?:[:.]\d{2})?\b/.test(clean);
+  return explicitMobility || commuteArrival || timedDeparture;
 }
 
 function asksNextEventTravel(message: string) {
@@ -116,6 +147,17 @@ function explicitArrivalRequest(message: string) {
   return { hhmm, destination: habitualAlias ? null : destination, useHabitualDestination: Boolean(habitualAlias) };
 }
 
+function explicitDepartureRequest(message: string): DepartureRequest | null {
+  const clean = normalize(message).replace(/\s+/g, " ").trim();
+  const timeMatch = clean.match(/\b(?:si\s+)?(?:salgo|saldre|saldria|salir)\s+(?:a|sobre)\s+las?\s+([01]?\d|2[0-3])(?:[:.]([0-5]\d))?\b/);
+  if (!timeMatch) return null;
+
+  const hhmm = `${String(Number(timeMatch[1])).padStart(2, "0")}:${timeMatch[2] || "00"}`;
+  const dayMatch = clean.match(/\b(hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
+  const useHabitualDestination = /\b(?:mi\s+)?(?:trabajo|oficina|curro)\b/.test(clean);
+  return { hhmm, day: dayMatch?.[1] || null, useHabitualDestination };
+}
+
 function validOrigin(value: SavedOrigin | undefined): value is SavedOrigin {
   return Boolean(value)
     && Number.isFinite(value?.latitude)
@@ -132,18 +174,26 @@ async function savedCommute(): Promise<SavedCommute | null> {
   try {
     const sql = neon(url);
     const rows = await sql`
-      SELECT origin_lat, origin_lng, destination
+      SELECT origin_lat, origin_lng, destination, arrival_time, weekdays
       FROM zyron_commute_profile
       WHERE id = 1 AND enabled = TRUE
       LIMIT 1
     `;
-    const row = rows[0] as { origin_lat?: number; origin_lng?: number; destination?: string } | undefined;
+    const row = rows[0] as {
+      origin_lat?: number;
+      origin_lng?: number;
+      destination?: string;
+      arrival_time?: string;
+      weekdays?: string;
+    } | undefined;
     if (!row) return null;
     const latitude = Number(row.origin_lat);
     const longitude = Number(row.origin_lng);
     const destination = String(row.destination || "").trim();
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !destination) return null;
-    return { origin: { latitude, longitude }, destination };
+    const arrivalTime = String(row.arrival_time || "").trim();
+    const weekdays = String(row.weekdays || "1,2,3,4,5").split(",").map(Number).filter((day) => day >= 1 && day <= 7);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !destination || !/^([01]\d|2[0-3]):[0-5]\d$/.test(arrivalTime)) return null;
+    return { origin: { latitude, longitude }, destination, arrivalTime, weekdays };
   } catch {
     return null;
   }
@@ -151,6 +201,98 @@ async function savedCommute(): Promise<SavedCommute | null> {
 
 async function savedOrigin(): Promise<SavedOrigin | null> {
   return (await savedCommute())?.origin ?? null;
+}
+
+function departureDate(request: DepartureRequest, now: Date, commute: SavedCommute) {
+  const weekdayMap: Record<string, number> = {
+    lunes: 1,
+    martes: 2,
+    miercoles: 3,
+    jueves: 4,
+    viernes: 5,
+    sabado: 6,
+    domingo: 7,
+  };
+
+  if (request.day === "hoy") return madridDateAtTime(now, request.hhmm);
+  if (request.day === "manana") return madridDateAtTime(new Date(now.getTime() + 24 * HOUR), request.hhmm);
+
+  const requestedWeekday = request.day ? weekdayMap[request.day] : null;
+  if (requestedWeekday) {
+    const currentWeekday = madridParts(now).weekday;
+    let days = (requestedWeekday - currentWeekday + 7) % 7;
+    let candidate = madridDateAtTime(new Date(now.getTime() + days * 24 * HOUR), request.hhmm);
+    if (candidate.getTime() <= now.getTime()) {
+      days += 7;
+      candidate = madridDateAtTime(new Date(now.getTime() + days * 24 * HOUR), request.hhmm);
+    }
+    return candidate;
+  }
+
+  const today = madridDateAtTime(now, request.hhmm);
+  if (today.getTime() > now.getTime()) return today;
+
+  const currentWeekday = madridParts(now).weekday;
+  for (let days = 1; days <= 7; days += 1) {
+    const weekday = ((currentWeekday - 1 + days) % 7) + 1;
+    if (commute.weekdays.includes(weekday)) {
+      return madridDateAtTime(new Date(now.getTime() + days * 24 * HOUR), request.hhmm);
+    }
+  }
+  return madridDateAtTime(new Date(now.getTime() + 24 * HOUR), request.hhmm);
+}
+
+async function departureTimeTrip(request: DepartureRequest, currentLocation?: SavedOrigin, now = new Date()): Promise<MobilityChatResult> {
+  const commute = await savedCommute();
+  if (!commute || !request.useHabitualDestination) {
+    return {
+      reply: "Entiendo la hora a la que quieres salir, pero para saber si llegarás bien necesito tener guardada tu ruta habitual de trabajo en Movilidad.",
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  const departure = departureDate(request, now, commute);
+  if (departure.getTime() <= now.getTime()) {
+    return {
+      reply: `La salida indicada (${request.hhmm}) ya ha pasado para ese día. Dime otra hora y recalculo.`,
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  const sameDay = madridDateKey(departure) === madridDateKey(now);
+  const live = sameDay && validOrigin(currentLocation);
+  const origin = live ? currentLocation : commute.origin;
+  const targetArrival = madridDateAtTime(departure, commute.arrivalTime);
+  const route = await computeDrivingRoute({
+    origin,
+    destination: { address: commute.destination },
+    departureTime: departure,
+  });
+
+  const routeMinutes = Math.max(1, Math.round(route.durationSeconds / 60));
+  const trafficMinutes = route.trafficDelaySeconds === null ? null : Math.max(0, Math.round(route.trafficDelaySeconds / 60));
+  const estimatedArrival = new Date(departure.getTime() + route.durationSeconds * 1000);
+  const deltaMinutes = Math.round((targetArrival.getTime() - estimatedArrival.getTime()) / 60000);
+  const trafficText = trafficMinutes === null ? "" : ` Tráfico previsto: +${trafficMinutes} min.`;
+  const originText = live ? "tu ubicación actual" : "tu punto habitual guardado";
+  const dateText = formatDay(departure);
+
+  if (deltaMinutes >= 0) {
+    const margin = deltaMinutes === 0 ? "prácticamente a la hora" : `${deltaMinutes} min antes`;
+    return {
+      reply: `Sí. Si el ${dateText} sales a las ${request.hhmm} desde ${originText}, calculo unos ${routeMinutes} min hasta ${commute.destination}.${trafficText} Llegarías sobre las ${formatClock(estimatedArrival)}, ${margin} de tu hora habitual guardada (${commute.arrivalTime}).`,
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  return {
+    reply: `No parece suficiente. Si el ${dateText} sales a las ${request.hhmm} desde ${originText}, calculo unos ${routeMinutes} min hasta ${commute.destination}.${trafficText} Llegarías sobre las ${formatClock(estimatedArrival)}, aproximadamente ${Math.abs(deltaMinutes)} min después de tu hora habitual guardada (${commute.arrivalTime}).`,
+    action: "mobility_target_read",
+    tool: "maps",
+  };
 }
 
 async function targetArrivalTrip(
@@ -294,6 +436,8 @@ async function habitualCommute(currentLocation?: SavedOrigin): Promise<MobilityC
 
 export async function handleMobilityChat(message: string, options: MobilityChatOptions = {}): Promise<MobilityChatResult | null> {
   if (!asksMobility(message)) return null;
+  const departure = explicitDepartureRequest(message);
+  if (departure) return departureTimeTrip(departure, options.currentLocation);
   const target = explicitArrivalRequest(message);
   if (target) return targetArrivalTrip(target, options.currentLocation);
   if (asksNextEventTravel(message)) return nextCalendarTrip(new Date(), options.currentLocation);
