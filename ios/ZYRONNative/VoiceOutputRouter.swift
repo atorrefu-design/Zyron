@@ -9,8 +9,8 @@ final class VoiceOutputRouter {
     private(set) var responseMode: ZyronResponseMode = VoiceCommunicationPolicy.current().responseMode
     private let notifier: QuietResponseNotifier
 
-    init(notifier: QuietResponseNotifier = .shared) {
-        self.notifier = notifier
+    init(notifier: QuietResponseNotifier? = nil) {
+        self.notifier = notifier ?? .shared
     }
 
     func refreshPolicy(now: Date = Date()) {
