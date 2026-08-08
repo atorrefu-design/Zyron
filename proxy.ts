@@ -4,6 +4,7 @@ import { verifyOwnerSession } from "./lib/auth";
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
+  "/api/auth/native-login",
   "/api/google/callback",
   "/api/push/dispatch",
   "/favicon.ico",
@@ -11,6 +12,12 @@ const PUBLIC_PATHS = [
 
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function bearerToken(request: NextRequest) {
+  const authorization = request.headers.get("authorization")?.trim() ?? "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
 }
 
 function isTimeChatMessage(value: string) {
@@ -63,8 +70,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get("zyron_owner_session")?.value;
-  const authenticated = await verifyOwnerSession(token);
+  const cookieToken = request.cookies.get("zyron_owner_session")?.value ?? null;
+  const nativeToken = bearerToken(request);
+  const [nativeAuthenticated, cookieAuthenticated] = await Promise.all([
+    verifyOwnerSession(nativeToken),
+    verifyOwnerSession(cookieToken),
+  ]);
+  const authenticated = nativeAuthenticated || cookieAuthenticated;
 
   if (authenticated) {
     const rewrite = await chatRewrite(request);
