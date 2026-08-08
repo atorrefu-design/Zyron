@@ -12,6 +12,17 @@ Objetivo de esta capa: convertir el iPhone en el oído y la boca nativos de ZYRO
 - Mantener entrada y salida de audio con el iPhone bloqueado cuando iOS lo permita mediante una sesión nativa `playAndRecord`.
 - El API key permanente de OpenAI nunca debe almacenarse en la app.
 
+## Lógica preparada antes de Xcode
+
+El contrato de comportamiento ya está definido en `docs/voice-activation-v1.md` y `lib/voice-engagement.ts`.
+
+El backend expone dos referencias para que la app nativa y la web compartan reglas:
+
+- `GET /api/voice/policy`: devuelve horario de voz/texto y tiempos de engagement.
+- `POST /api/voice/activation`: clasifica ejemplos de invocación durante desarrollo. La versión final de iPhone debe ejecutar esta decisión localmente para no depender de red.
+
+La conversación permanece activa sin repetir `ZYRON` y vuelve a escucha pasiva tras cierre explícito, cierre suave o 45 segundos de silencio completo.
+
 ## Primera prueba en Xcode
 
 1. Crear una app iOS SwiftUI llamada `ZYRON`.
@@ -23,6 +34,12 @@ Objetivo de esta capa: convertir el iPhone en el oído y la boca nativos de ZYRO
 7. Instalar en el iPhone físico.
 8. Prueba decisiva: iniciar conversación, bloquear manualmente la pantalla y comprobar que ZYRON sigue escuchando y respondiendo.
 
-## Siguiente capa
+## Segunda prueba
 
-Una vez validado el audio bloqueado, añadir detector local de wake word, clasificador de invocación y recuperación automática tras interrupciones del sistema, llamadas o cambios de dispositivo Bluetooth.
+Una vez validado el audio bloqueado:
+
+1. Añadir detector local de `ZYRON`.
+2. Mantener una ventana local de contexto de hasta 4 segundos.
+3. Aplicar el clasificador de invocación antes de abrir Realtime.
+4. Validar frases directas y menciones casuales.
+5. Añadir recuperación automática tras llamadas, interrupciones de Siri y cambios de Bluetooth.
