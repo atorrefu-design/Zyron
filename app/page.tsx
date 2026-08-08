@@ -1,22 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import RealtimeVoice, { type RealtimeVoiceState } from "./realtime-voice";
 
 type Message = { role: "user" | "assistant"; content: string };
 type CoreState = "ready" | "listening" | "thinking" | "speaking";
-type InteractionMode = "voice" | "text";
-type SpeechRecognitionEventLike = { results: ArrayLike<{ 0: { transcript: string } }> };
-type SpeechRecognitionInstance = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start: () => void;
-  stop: () => void;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-};
 type PendingCalendarCommand = { originalMessage: string; eventId: string };
 type PendingCalendarChoice = { originalMessage: string; events: Array<{ id: string; title?: string }> };
 type CalendarCommandResponse = {
@@ -42,14 +30,10 @@ type DeviceLocation = {
   capturedAt: string;
 };
 
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionInstance;
-    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
-  }
-}
-
-const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y gestionar tu agenda conectada." }];
+const initialMessages: Message[] = [{
+  role: "assistant",
+  content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedes hablar conmigo en tiempo real o escribirme.",
+}];
 const CHAT_TIMEOUT_MS = 35_000;
 const quickPrompts = ["Ponme al día", "¿Qué tengo hoy?", "¿A qué hora tengo que salir?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
 const PENDING_KEY = "zyron-pending-calendar-command";
@@ -117,75 +101,28 @@ function proactiveMessage(alerts: ProactiveAlert[]) {
   return `Aarón, antes de que me preguntes nada he detectado ${selected.length} asunto${selected.length === 1 ? "" : "s"} que conviene mirar:\n${lines.join("\n")}`;
 }
 
-function textForSpeech(value: string) {
-  return value
-    .replace(/[⭐●•▪◦]/g, "")
-    .replace(/^\s*\d+[.)]\s*/gm, "")
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/\n+/g, ". ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function chunkSpeech(value: string, maxLength = 1200) {
-  const clean = textForSpeech(value);
-  if (!clean) return [];
-  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
-  const chunks: string[] = [];
-  let current = "";
-
-  const flush = () => {
-    const ready = current.trim();
-    if (ready) chunks.push(ready);
-    current = "";
-  };
-
-  for (const rawSentence of sentences) {
-    const sentence = rawSentence.trim();
-    if (!sentence) continue;
-    if (sentence.length > maxLength) {
-      flush();
-      const words = sentence.split(/\s+/);
-      let piece = "";
-      for (const word of words) {
-        const candidate = `${piece} ${word}`.trim();
-        if (candidate.length > maxLength && piece) {
-          chunks.push(piece);
-          piece = word;
-        } else {
-          piece = candidate;
-        }
-      }
-      if (piece) chunks.push(piece);
-      continue;
-    }
-    const candidate = `${current} ${sentence}`.trim();
-    if (candidate.length > maxLength && current) flush();
-    current = `${current} ${sentence}`.trim();
-  }
-  flush();
-  return chunks;
-}
-
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [voiceState, setVoiceState] = useState<RealtimeVoiceState>("ready");
   const [pendingCalendar, setPendingCalendar] = useState<PendingCalendarCommand | null>(null);
   const [pendingChoice, setPendingChoice] = useState<PendingCalendarChoice | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const voiceConversationRef = useRef(false);
-  const speechGenerationRef = useRef(0);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const ttsControllerRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  const speechSupported = useMemo(() => typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition), []);
-  const coreState: CoreState = listening ? "listening" : loading ? "thinking" : speaking ? "speaking" : "ready";
-  const coreLabel = { ready: "Núcleo privado activo", listening: "Escuchando", thinking: "Pensando", speaking: "Hablando" }[coreState];
+  const coreState: CoreState = loading || voiceState === "connecting" || voiceState === "thinking"
+    ? "thinking"
+    : voiceState === "listening"
+      ? "listening"
+      : voiceState === "speaking"
+        ? "speaking"
+        : "ready";
+  const coreLabel = {
+    ready: "Núcleo privado activo",
+    listening: "Conversación activa · escuchando",
+    thinking: "Pensando",
+    speaking: "Conversación activa · hablando",
+  }[coreState];
 
   useEffect(() => {
     try {
@@ -239,149 +176,6 @@ export default function Home() {
     else sessionStorage.removeItem(CHOICE_KEY);
   }, [pendingChoice]);
 
-  useEffect(() => {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) return;
-    const recognition = new Recognition();
-    recognition.lang = "es-ES";
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => {
-      setListening(false);
-      voiceConversationRef.current = false;
-    };
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
-      if (transcript) void sendText(transcript, "voice");
-    };
-    recognitionRef.current = recognition;
-    return () => {
-      voiceConversationRef.current = false;
-      speechGenerationRef.current += 1;
-      recognition.stop();
-      ttsControllerRef.current?.abort();
-      try { audioSourceRef.current?.stop(); } catch { /* already stopped */ }
-      void audioContextRef.current?.close().catch(() => undefined);
-    };
-  }, []);
-
-  function ensureAudioContext() {
-    if (typeof window === "undefined" || !("AudioContext" in window)) return null;
-    if (!audioContextRef.current || audioContextRef.current.state === "closed") {
-      audioContextRef.current = new AudioContext();
-    }
-    return audioContextRef.current;
-  }
-
-  async function unlockAudio() {
-    const context = ensureAudioContext();
-    if (!context) return false;
-    try {
-      if (context.state !== "running") await context.resume();
-      const buffer = context.createBuffer(1, 1, context.sampleRate);
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(context.destination);
-      source.start(0);
-      return context.state === "running";
-    } catch {
-      return false;
-    }
-  }
-
-  function stopSpeech() {
-    speechGenerationRef.current += 1;
-    ttsControllerRef.current?.abort();
-    ttsControllerRef.current = null;
-    try { audioSourceRef.current?.stop(); } catch { /* already stopped */ }
-    audioSourceRef.current = null;
-    setSpeaking(false);
-  }
-
-  function resumeVoiceConversation() {
-    if (!voiceConversationRef.current) return;
-    const recognition = recognitionRef.current;
-    if (!recognition) return;
-    window.setTimeout(() => {
-      if (!voiceConversationRef.current) return;
-      try {
-        recognition.start();
-      } catch {
-        voiceConversationRef.current = false;
-        setListening(false);
-      }
-    }, 300);
-  }
-
-  async function playAudioBuffer(context: AudioContext, buffer: AudioBuffer, generation: number) {
-    await new Promise<void>((resolve) => {
-      if (speechGenerationRef.current !== generation) {
-        resolve();
-        return;
-      }
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(context.destination);
-      audioSourceRef.current = source;
-      source.onended = () => {
-        if (audioSourceRef.current === source) audioSourceRef.current = null;
-        resolve();
-      };
-      source.start(0);
-    });
-  }
-
-  async function speak(text: string, resumeListening = false) {
-    const chunks = chunkSpeech(text);
-    if (!chunks.length) {
-      if (resumeListening) resumeVoiceConversation();
-      return;
-    }
-
-    stopSpeech();
-    const generation = speechGenerationRef.current;
-    const context = ensureAudioContext();
-    if (!context) {
-      if (resumeListening) resumeVoiceConversation();
-      return;
-    }
-
-    try {
-      if (context.state !== "running") await context.resume();
-      setSpeaking(true);
-
-      for (const chunk of chunks) {
-        if (speechGenerationRef.current !== generation) return;
-        const controller = new AbortController();
-        ttsControllerRef.current = controller;
-        const response = await fetch("/api/voice/speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: chunk }),
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`tts_${response.status}`);
-        const encoded = await response.arrayBuffer();
-        if (speechGenerationRef.current !== generation) return;
-        const decoded = await context.decodeAudioData(encoded.slice(0));
-        await playAudioBuffer(context, decoded, generation);
-      }
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        console.warn("ZYRON_VOICE_PLAYBACK_ERROR", error);
-      }
-    } finally {
-      if (speechGenerationRef.current === generation) {
-        ttsControllerRef.current = null;
-        setSpeaking(false);
-        if (resumeListening) resumeVoiceConversation();
-      }
-    }
-  }
-
   async function runCalendarCommand(message: string, options?: { eventId?: string; confirmation?: boolean; originalMessage?: string }) {
     const response = await fetch("/api/calendar/command", {
       method: "POST",
@@ -418,17 +212,9 @@ export default function Home() {
     return data.reply.trim();
   }
 
-  async function sendText(text: string, mode: InteractionMode = "text") {
+  async function sendText(text: string) {
     const clean = text.trim();
     if (!clean || loading) return;
-
-    if (mode === "text") {
-      voiceConversationRef.current = false;
-      stopSpeech();
-      if (listening) recognitionRef.current?.stop();
-    } else {
-      voiceConversationRef.current = true;
-    }
 
     const nextMessages = [...messages, { role: "user" as const, content: clean }];
     setMessages(nextMessages);
@@ -445,11 +231,9 @@ export default function Home() {
         reply = "De acuerdo. He cancelado la selección y no he cambiado nada en tu calendario.";
       } else if (pendingChoice) {
         const selected = selectedChoice(clean, pendingChoice);
-        if (!selected) {
-          reply = `Indica un número entre 1 y ${pendingChoice.events.length}, o di “cancela”.`;
-        } else {
-          reply = await runCalendarCommand(clean, { eventId: selected.id, originalMessage: pendingChoice.originalMessage });
-        }
+        reply = selected
+          ? await runCalendarCommand(clean, { eventId: selected.id, originalMessage: pendingChoice.originalMessage })
+          : `Indica un número entre 1 y ${pendingChoice.events.length}, o di “cancela”.`;
       } else if (pendingCalendar && isCancellation(clean)) {
         setPendingCalendar(null);
         reply = "De acuerdo. He cancelado la operación y no he cambiado nada en tu calendario.";
@@ -477,7 +261,6 @@ export default function Home() {
         reply = data.reply.trim();
       }
       setMessages((current) => [...current, { role: "assistant", content: reply }]);
-      if (mode === "voice") void speak(reply, true);
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError"
         ? "La consulta ha tardado demasiado y la he detenido. Prueba de nuevo en unos segundos."
@@ -485,7 +268,6 @@ export default function Home() {
           ? `No he podido responder: ${error.message}.`
           : "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
       setMessages((current) => [...current, { role: "assistant", content: message }]);
-      if (mode === "voice") void speak(message, true);
     } finally {
       window.clearTimeout(timeout);
       setLoading(false);
@@ -494,34 +276,10 @@ export default function Home() {
 
   function sendMessage(event: FormEvent) {
     event.preventDefault();
-    void sendText(input, "text");
-  }
-
-  async function toggleListening() {
-    const recognition = recognitionRef.current;
-    if (!recognition || loading) return;
-    try {
-      if (listening || speaking || voiceConversationRef.current) {
-        voiceConversationRef.current = false;
-        if (listening) recognition.stop();
-        stopSpeech();
-        return;
-      }
-
-      voiceConversationRef.current = true;
-      stopSpeech();
-      await unlockAudio();
-      recognition.start();
-    } catch {
-      voiceConversationRef.current = false;
-      setListening(false);
-    }
+    void sendText(input);
   }
 
   function clearConversation() {
-    voiceConversationRef.current = false;
-    stopSpeech();
-    if (listening) recognitionRef.current?.stop();
     setPendingCalendar(null);
     setPendingChoice(null);
     setMessages(initialMessages);
@@ -531,8 +289,6 @@ export default function Home() {
   }
 
   async function logout() {
-    voiceConversationRef.current = false;
-    stopSpeech();
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     window.location.assign("/login");
   }
@@ -557,18 +313,18 @@ export default function Home() {
       <section className="panel">
         <div className="eyebrow">Sistema privado · Aarón</div>
         <h1>Hablar</h1>
-        <p className="subtitle">Conversación con memoria, voz, tareas, alertas, Google Calendar y movilidad con tráfico.</p>
+        <p className="subtitle">Conversación de voz en tiempo real, memoria, tareas, alertas, Google Calendar y movilidad con tráfico.</p>
         <div className="voiceBar">
-          <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening || speaking ? "Terminar conversación por voz" : "Hablar con ZYRON"}>
-            {listening ? "■" : loading ? "…" : speaking ? "◖" : "●"}
-          </button>
-          <div>
-            <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo por voz…" : speechSupported ? "Toca el núcleo para iniciar una conversación" : "Voz no disponible"}</strong>
-            <div className="voiceHint">🎙️ Si me hablas, te respondo por voz y sigo escuchando. ⌨️ Si escribes o pulsas una consulta rápida, te respondo por texto.</div>
-          </div>
+          <RealtimeVoice
+            disabled={loading}
+            onStateChange={setVoiceState}
+            onUserTranscript={(text) => setMessages((current) => [...current, { role: "user", content: text }])}
+            onAssistantTranscript={(text) => setMessages((current) => [...current, { role: "assistant", content: text }])}
+            onError={(message) => setMessages((current) => [...current, { role: "assistant", content: `Voz: ${message}` }])}
+          />
         </div>
         <div className="headerActions" aria-label="Consultas rápidas">
-          {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt, "text")}>{prompt}</button>)}
+          {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt)}>{prompt}</button>)}
         </div>
         <div className="chat" aria-live="polite">
           {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>{message.content}</div>)}
@@ -579,7 +335,7 @@ export default function Home() {
           <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Ponme al día" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
-        <div className="note">Acceso exclusivo para Aarón. En consultas de movilidad, la ubicación actual se envía solo para calcular esa respuesta y no se guarda como historial de localización.</div>
+        <div className="note">Si inicias voz, el micrófono permanece activo durante esa conversación para poder encadenar turnos e interrumpir a ZYRON. Si escribes, la respuesta se mantiene en texto.</div>
       </section>
     </main>
   );
