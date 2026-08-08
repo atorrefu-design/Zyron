@@ -57,6 +57,8 @@ type NavigatorWithWakeLock = Navigator & {
   };
 };
 
+type RecentTurn = { role: "user" | "assistant"; text: string };
+
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
@@ -172,6 +174,12 @@ export default function RealtimeVoice({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const activeRef = useRef(false);
+  const connectingRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const recoveryAttemptsRef = useRef(0);
+  const hiddenAtRef = useRef<number | null>(null);
+  const reconnectingRef = useRef(false);
+  const recentTurnsRef = useRef<RecentTurn[]>([]);
   const userSeenRef = useRef(new Set<string>());
   const assistantSeenRef = useRef(new Set<string>());
   const callbacksRef = useRef({ onStateChange, onUserTranscript, onAssistantTranscript, onError });
@@ -190,6 +198,12 @@ export default function RealtimeVoice({
     callbacksRef.current.onError?.(message);
   }
 
+  function rememberTurn(role: RecentTurn["role"], text: string) {
+    const clean = text.replace(/\s+/g, " ").trim();
+    if (!clean) return;
+    recentTurnsRef.current = [...recentTurnsRef.current, { role, text: clean }].slice(-8);
+  }
+
   async function requestScreenWakeLock() {
     if (document.visibilityState !== "visible" || !activeRef.current) return;
     const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock;
@@ -197,7 +211,7 @@ export default function RealtimeVoice({
     try {
       wakeLockRef.current = await wakeLock.request("screen");
     } catch {
-      // Wake Lock is an enhancement. Voice must continue even if iOS rejects it.
+      // Wake Lock is best effort. Recovery below handles iOS suspensions.
     }
   }
 
@@ -218,7 +232,11 @@ export default function RealtimeVoice({
           album: "Asistente personal",
         });
         navigator.mediaSession.playbackState = "playing";
+        navigator.mediaSession.setActionHandler("play", () => {
+          void audioRef.current?.play().catch(() => undefined);
+        });
       } else {
+        navigator.mediaSession.setActionHandler("play", null);
         navigator.mediaSession.playbackState = "none";
         navigator.mediaSession.metadata = null;
       }
@@ -227,15 +245,71 @@ export default function RealtimeVoice({
     }
   }
 
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible" && activeRef.current) {
-        void requestScreenWakeLock();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  async function resumeRemoteAudio() {
+    const audio = audioRef.current;
+    if (!audio) return false;
+    try {
+      await audio.play();
+      setMediaSessionPlaying(true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimerRef.current === null) return;
+    window.clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
+  }
+
+  function transportLooksHealthy() {
+    const pc = pcRef.current;
+    const channel = dcRef.current;
+    const track = streamRef.current?.getAudioTracks()[0];
+    return Boolean(
+      pc
+      && pc.connectionState === "connected"
+      && channel
+      && channel.readyState === "open"
+      && track
+      && track.readyState === "live",
+    );
+  }
+
+  function teardownTransport() {
+    clearReconnectTimer();
+
+    const channel = dcRef.current;
+    dcRef.current = null;
+    if (channel) {
+      channel.onopen = null;
+      channel.onmessage = null;
+      channel.onerror = null;
+      channel.onclose = null;
+      channel.close();
+    }
+
+    const pc = pcRef.current;
+    pcRef.current = null;
+    if (pc) {
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.close();
+    }
+
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+
+    if (audioRef.current) {
+      audioRef.current.onpause = null;
+      audioRef.current.pause();
+      audioRef.current.srcObject = null;
+      audioRef.current.remove();
+    }
+    audioRef.current = null;
+    connectingRef.current = false;
+  }
 
   function sendEvent(event: Record<string, unknown>) {
     const channel = dcRef.current;
@@ -243,6 +317,130 @@ export default function RealtimeVoice({
     channel.send(JSON.stringify(event));
     return true;
   }
+
+  function restoreRecentContext() {
+    if (!reconnectingRef.current || !recentTurnsRef.current.length) return;
+    const transcript = recentTurnsRef.current
+      .map((turn) => `${turn.role === "user" ? "Aarón" : "ZYRON"}: ${turn.text}`)
+      .join("\n")
+      .slice(-3500);
+
+    sendEvent({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [{
+          type: "input_text",
+          text: `Contexto técnico de una reconexión tras suspenderse el iPhone. No respondas a este mensaje por sí solo; úsalo únicamente para continuar el siguiente turno con coherencia:\n${transcript}`,
+        }],
+      },
+    });
+    reconnectingRef.current = false;
+  }
+
+  function attachTrackRecovery(track: MediaStreamTrack) {
+    track.onended = () => {
+      if (activeRef.current) scheduleRecovery(350);
+    };
+  }
+
+  async function refreshMicrophone() {
+    const pc = pcRef.current;
+    if (!pc || !activeRef.current || document.visibilityState !== "visible") return false;
+
+    try {
+      const replacementStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const replacementTrack = replacementStream.getAudioTracks()[0];
+      const sender = pc.getSenders().find((candidate) => candidate.track?.kind === "audio");
+      if (!replacementTrack || !sender) {
+        replacementStream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+
+      await sender.replaceTrack(replacementTrack);
+      attachTrackRecovery(replacementTrack);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = replacementStream;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function scheduleRecovery(delay = 700) {
+    if (!activeRef.current || document.visibilityState !== "visible") return;
+    clearReconnectTimer();
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      void recoverAfterSuspension();
+    }, delay);
+  }
+
+  async function recoverAfterSuspension() {
+    if (!activeRef.current || connectingRef.current || document.visibilityState !== "visible") return;
+
+    await requestScreenWakeLock();
+    const hiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+    hiddenAtRef.current = null;
+
+    if (transportLooksHealthy()) {
+      const audioReady = await resumeRemoteAudio();
+      const microphoneReady = hiddenFor > 700 ? await refreshMicrophone() : true;
+      if (audioReady && microphoneReady) {
+        recoveryAttemptsRef.current = 0;
+        updateState("listening");
+        return;
+      }
+    }
+
+    if (recoveryAttemptsRef.current >= 2) {
+      reportError("iOS ha suspendido la conversación y no he podido recuperarla automáticamente. Toca el núcleo para reconectar.");
+      teardownTransport();
+      activeRef.current = false;
+      return;
+    }
+
+    recoveryAttemptsRef.current += 1;
+    reconnectingRef.current = true;
+    teardownTransport();
+    await start(true);
+  }
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!activeRef.current) return;
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      void requestScreenWakeLock();
+      scheduleRecovery(250);
+    };
+
+    const handlePageShow = () => {
+      if (activeRef.current) scheduleRecovery(250);
+    };
+
+    const handleOnline = () => {
+      if (activeRef.current) scheduleRecovery(300);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
 
   async function runTool(event: RealtimeEvent) {
     if (!event.call_id || !event.name) return;
@@ -318,6 +516,7 @@ export default function RealtimeVoice({
         const key = event.item_id || text || "";
         if (text && key && !userSeenRef.current.has(key)) {
           userSeenRef.current.add(key);
+          rememberTurn("user", text);
           callbacksRef.current.onUserTranscript?.(text);
         }
         break;
@@ -328,6 +527,7 @@ export default function RealtimeVoice({
         const key = event.item_id || text || "";
         if (text && key && !assistantSeenRef.current.has(key)) {
           assistantSeenRef.current.add(key);
+          rememberTurn("assistant", text);
           callbacksRef.current.onAssistantTranscript?.(text);
         }
         break;
@@ -343,13 +543,20 @@ export default function RealtimeVoice({
     }
   }
 
-  async function start() {
-    if (disabled || pcRef.current) return;
-    updateState("connecting");
+  async function start(recovery = false) {
+    if (disabled || connectingRef.current || (!recovery && pcRef.current)) return;
+    connectingRef.current = true;
     activeRef.current = true;
+    updateState("connecting");
     void requestScreenWakeLock();
-    userSeenRef.current.clear();
-    assistantSeenRef.current.clear();
+
+    if (!recovery) {
+      recoveryAttemptsRef.current = 0;
+      reconnectingRef.current = false;
+      recentTurnsRef.current = [];
+      userSeenRef.current.clear();
+      assistantSeenRef.current.clear();
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -360,6 +567,7 @@ export default function RealtimeVoice({
         },
       });
       streamRef.current = stream;
+      stream.getAudioTracks().forEach(attachTrackRecovery);
 
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
@@ -373,33 +581,51 @@ export default function RealtimeVoice({
       audio.style.display = "none";
       document.body.appendChild(audio);
       audioRef.current = audio;
+      audio.onpause = () => {
+        if (activeRef.current && document.visibilityState === "visible") {
+          window.setTimeout(() => void resumeRemoteAudio(), 120);
+        }
+      };
+
       pc.ontrack = (event) => {
         const [remoteStream] = event.streams;
         if (!remoteStream) return;
         audio.srcObject = remoteStream;
-        void audio.play().then(() => {
-          setMediaSessionPlaying(true);
-        }).catch(() => {
-          callbacksRef.current.onError?.("El iPhone ha bloqueado el audio remoto. Toca de nuevo el núcleo.");
+        void resumeRemoteAudio().then((played) => {
+          if (!played) callbacksRef.current.onError?.("El iPhone ha bloqueado el audio remoto. Toca el núcleo si no se recupera solo.");
         });
       };
 
       const channel = pc.createDataChannel("oai-events");
       dcRef.current = channel;
-      channel.onopen = () => updateState("listening");
+      channel.onopen = () => {
+        connectingRef.current = false;
+        recoveryAttemptsRef.current = 0;
+        updateState("listening");
+        void requestScreenWakeLock();
+        void resumeRemoteAudio();
+        restoreRecentContext();
+      };
       channel.onmessage = (message) => handleEvent(String(message.data));
       channel.onerror = () => {
-        reportError("La conexión de voz en tiempo real ha fallado.");
-        stop(false);
+        if (activeRef.current) scheduleRecovery(350);
       };
       channel.onclose = () => {
-        if (pcRef.current) stop(false);
+        if (activeRef.current) scheduleRecovery(350);
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "failed" && pcRef.current) {
-          reportError("El iPhone no ha podido completar la conexión WebRTC.");
-          stop(false);
+        if (!activeRef.current) return;
+        if (pc.connectionState === "connected") {
+          recoveryAttemptsRef.current = 0;
+          return;
+        }
+        if (pc.connectionState === "disconnected") {
+          scheduleRecovery(1600);
+          return;
+        }
+        if (pc.connectionState === "failed") {
+          scheduleRecovery(250);
         }
       };
 
@@ -425,33 +651,40 @@ export default function RealtimeVoice({
         throw new Error("OpenAI no ha devuelto una respuesta WebRTC válida.");
       }
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      connectingRef.current = false;
     } catch (error) {
+      connectingRef.current = false;
+      teardownTransport();
+
       const detail = error instanceof DOMException && error.name === "NotAllowedError"
         ? "Necesito permiso de micrófono para iniciar la conversación."
-        : error instanceof Error && error.message
-          ? error.message
-          : "No he podido iniciar la voz en tiempo real.";
+        : error instanceof Error && /No AVAudioSessionCaptureDevice/i.test(error.message)
+          ? "iOS ha perdido temporalmente el dispositivo de audio. Recarga ZYRON y vuelve a iniciar la conversación."
+          : error instanceof Error && error.message
+            ? error.message
+            : "No he podido iniciar la voz en tiempo real.";
+
+      if (recovery && activeRef.current && recoveryAttemptsRef.current < 2) {
+        scheduleRecovery(900);
+        return;
+      }
+
       reportError(detail);
-      stop(false);
+      activeRef.current = false;
+      void releaseScreenWakeLock();
+      setMediaSessionPlaying(false);
     }
   }
 
   function stop(resetState = true) {
     activeRef.current = false;
+    hiddenAtRef.current = null;
+    recoveryAttemptsRef.current = 0;
+    reconnectingRef.current = false;
+    clearReconnectTimer();
     void releaseScreenWakeLock();
     setMediaSessionPlaying(false);
-    dcRef.current?.close();
-    dcRef.current = null;
-    pcRef.current?.close();
-    pcRef.current = null;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.srcObject = null;
-      audioRef.current.remove();
-    }
-    audioRef.current = null;
+    teardownTransport();
     if (resetState) updateState("ready");
   }
 
@@ -467,7 +700,7 @@ export default function RealtimeVoice({
         : state === "speaking"
           ? "Hablando contigo…"
           : state === "error"
-            ? "La voz en tiempo real necesita reiniciarse"
+            ? "La voz necesita reconectarse"
             : "Toca el núcleo para iniciar una conversación";
 
   return (
@@ -483,7 +716,7 @@ export default function RealtimeVoice({
       </button>
       <div>
         <strong>{label}</strong>
-        <div className="voiceHint">🎙️ Conversación en tiempo real: habla con normalidad, interrúmpeme si quieres y continúa sin volver a tocar el botón. Durante la conversación mantengo la pantalla despierta para evitar que iOS suspenda el audio.</div>
+        <div className="voiceHint">🎙️ Conversación en tiempo real: habla con normalidad, interrúmpeme si quieres y continúa sin volver a tocar el botón. Mantengo la pantalla despierta y, si iOS suspende audio o micrófono, intento recuperarlos al volver.</div>
       </div>
     </>
   );
