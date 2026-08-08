@@ -15,7 +15,10 @@ function normalize(value: string) {
 
 function isMobilityChatMessage(value: string) {
   const clean = normalize(value);
-  return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+  const explicitMobility = /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+  const commuteArrival = /\b(llego|llegare|llegaria)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
+  const timedDeparture = /\b(salgo|saldre|saldria|salir)\b.*\blas?\s+\d{1,2}(?:[:.]\d{2})?\b/.test(clean);
+  return explicitMobility || commuteArrival || timedDeparture;
 }
 
 async function mobilityRewrite(request: NextRequest) {
