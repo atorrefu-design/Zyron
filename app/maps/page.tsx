@@ -55,10 +55,21 @@ function formatClock(value: string) {
   }).format(new Date(value));
 }
 
+function googleDiagnostic(value: string) {
+  const separator = value.indexOf(":");
+  if (separator < 0) return "";
+  return value.slice(separator + 1).trim().slice(0, 220);
+}
+
 function routeErrorMessage(value: string) {
   if (value === "maps_not_configured") return "Falta configurar Google Routes en el servidor.";
   if (/maps_routes_403/.test(value)) return "Google Routes ha rechazado la clave. Revisa que Routes API esté habilitada, que la clave permita Routes API y que el proyecto tenga facturación activa.";
-  if (/maps_routes_400/.test(value)) return "Google no ha aceptado esta ruta. Prueba escribiendo el destino con municipio y provincia, por ejemplo: «Jacint Verdaguer 154, Barcelona».";
+  if (/maps_routes_400/.test(value)) {
+    const diagnostic = googleDiagnostic(value);
+    return diagnostic
+      ? `Google Routes devuelve: ${diagnostic}`
+      : "Google ha rechazado algún parámetro de la ruta. He activado diagnóstico para identificar cuál.";
+  }
   if (/maps_route_unavailable/.test(value)) return "Google no ha encontrado una ruta válida para ese destino. Añade municipio o código postal para concretarlo.";
   if (/maps_routes_429/.test(value)) return "Google Routes ha aplicado un límite temporal. Espera unos segundos y vuelve a probar.";
   return "No he podido calcular la ruta. Revisa la configuración de Maps y vuelve a intentarlo.";
