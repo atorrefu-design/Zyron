@@ -56,7 +56,7 @@ final class RealtimeConversationBridge {
         case "conversation.item.input_audio_transcription.completed":
             let text = event.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
-            sessionCoordinator.registerConversationActivity()
+            sessionCoordinator.handleLocalTranscript(text)
             onUserTranscript?(text)
 
         case "response.output_audio_transcript.done", "response.audio_transcript.done":
