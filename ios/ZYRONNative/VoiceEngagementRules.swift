@@ -5,13 +5,7 @@ enum NativeActiveTranscriptDecision {
     case end
 }
 
-enum VoiceEngagementRules {
-    static let wakeConfirmationWindowMs = 1_800
-    static let wakePauseActivationMs = 250
-    static let idleConversationTimeoutMs = 45_000
-    static let softGoodbyeTimeoutMs = 5_000
-    static let localContextWindowMs = 4_000
-
+extension VoiceEngagementRules {
     static func classifyActiveTranscript(_ value: String) -> NativeActiveTranscriptDecision {
         let transcript = normalize(value)
 
