@@ -48,17 +48,21 @@ final class ZyronVoiceRuntime: ObservableObject {
         transport: NativeRealtimeTransport
     ) {
         self.wakeDetector?.stop()
-        self.transport?.disconnect()
-
         self.wakeDetector = wakeDetector
-        self.transport = transport
-        bridge.sender = transport
+        install(transport: transport)
 
         wakeDetector.onDetection = { [weak self] in
             Task { @MainActor in
                 self?.wakeWordDetected()
             }
         }
+
+    }
+
+    func install(transport: NativeRealtimeTransport) {
+        self.transport?.disconnect()
+        self.transport = transport
+        bridge.sender = transport
 
         transport.onEvent = { [weak self] event in
             Task { @MainActor in
@@ -71,6 +75,21 @@ final class ZyronVoiceRuntime: ObservableObject {
                 self?.handleTransportDisconnected(reason)
             }
         }
+    }
+
+    func startManualConversation(command: String? = nil) {
+        guard state != .connecting, state != .active else { return }
+        wakeDetector?.stop()
+        sessionCoordinator.reset()
+        sessionCoordinator.activateManually(command: command)
+    }
+
+    func stopConversation() {
+        guard state == .connecting || state == .active || state == .interrupted else { return }
+        transport?.disconnect()
+        audioSession.deactivate()
+        sessionCoordinator.reset()
+        returnToPassive()
     }
 
     func startAlwaysOn() throws {
@@ -187,7 +206,10 @@ final class ZyronVoiceRuntime: ObservableObject {
     }
 
     private func activateRealtime(command: String?) async {
-        guard desiredAlwaysOn, let transport else { return }
+        guard let transport else {
+            fail("Falta preparar el transporte Realtime de ZYRON.")
+            return
+        }
 
         state = .connecting
         wakeDetector?.stop()
