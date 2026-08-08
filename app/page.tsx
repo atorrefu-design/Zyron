@@ -50,7 +50,7 @@ declare global {
 
 const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y gestionar tu agenda conectada." }];
 const CHAT_TIMEOUT_MS = 35_000;
-const quickPrompts = ["¿Qué tengo hoy?", "¿A qué hora tengo que salir?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
+const quickPrompts = ["Ponme al día", "¿Qué tengo hoy?", "¿A qué hora tengo que salir?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
 const PENDING_KEY = "zyron-pending-calendar-command";
 const CHOICE_KEY = "zyron-pending-calendar-choice";
 const PROACTIVE_KEY = "zyron-proactive-shown";
@@ -68,6 +68,11 @@ function isCalendarManagementCommand(message: string) {
 function isMobilityQuery(message: string) {
   const clean = normalize(message);
   return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+}
+
+function isBriefingQuery(message: string) {
+  const clean = normalize(message).replace(/\s+/g, " ").trim();
+  return /\b(ponme al dia|ponme al corriente|briefing|resumeme el dia|resumen del dia|como tengo el dia|que necesito saber ahora|que deberia saber ahora|que es importante hoy)\b/.test(clean);
 }
 
 function currentDeviceLocation() {
@@ -247,6 +252,14 @@ export default function Home() {
     return data.reply.trim();
   }
 
+  async function runBriefing() {
+    const response = await fetch("/api/briefing", { cache: "no-store" });
+    const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
+    if (!response.ok) throw new Error(data.error || `Error ${response.status}`);
+    if (!data.reply?.trim()) throw new Error("El briefing respondió sin texto");
+    return data.reply.trim();
+  }
+
   async function sendText(text: string) {
     const clean = text.trim();
     if (!clean || loading) return;
@@ -278,6 +291,8 @@ export default function Home() {
       } else if (pendingCalendar) {
         setPendingCalendar(null);
         reply = "He descartado la operación pendiente. Dime la nueva instrucción completa y la ejecutaré desde cero.";
+      } else if (isBriefingQuery(clean)) {
+        reply = await runBriefing();
       } else if (isCalendarManagementCommand(clean)) {
         reply = await runCalendarCommand(clean);
       } else {
@@ -384,7 +399,7 @@ export default function Home() {
           <div ref={chatEndRef} />
         </div>
         <form className="composer" onSubmit={sendMessage}>
-          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: ¿A qué hora tengo que salir?" autoComplete="off" />
+          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Ponme al día" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
         <div className="note">Acceso exclusivo para Aarón. En consultas de movilidad, la ubicación actual se envía solo para calcular esa respuesta y no se guarda como historial de localización.</div>
