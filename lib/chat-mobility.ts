@@ -1,16 +1,17 @@
 import { neon } from "@neondatabase/serverless";
 import { listCalendarEvents } from "./google/calendar";
-import { planDepartureForArrival } from "./google/routes";
+import { computeDrivingRoute, planDepartureForArrival } from "./google/routes";
 import { buildCommuteBriefing } from "./commute-briefing";
 
 const TIME_ZONE = "Europe/Madrid";
 const HOUR = 60 * 60 * 1000;
 
 type SavedOrigin = { latitude: number; longitude: number };
+type SavedCommute = { origin: SavedOrigin; destination: string };
 
 export type MobilityChatResult = {
   reply: string;
-  action: "mobility_commute_read" | "mobility_calendar_read";
+  action: "mobility_commute_read" | "mobility_calendar_read" | "mobility_target_read";
   tool: "maps";
 };
 
@@ -41,6 +42,42 @@ function formatEventStart(value: string) {
   }).format(new Date(value));
 }
 
+function madridParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+    hour: Number(get("hour")),
+    minute: Number(get("minute")),
+    second: Number(get("second")),
+  };
+}
+
+function madridOffsetMs(date: Date) {
+  const p = madridParts(date);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - date.getTime();
+}
+
+function madridDateAtTime(reference: Date, hhmm: string) {
+  const p = madridParts(reference);
+  const [hour, minute] = hhmm.split(":").map(Number);
+  const wallClockUtc = Date.UTC(p.year, p.month - 1, p.day, hour, minute, 0);
+  let candidate = new Date(wallClockUtc - madridOffsetMs(new Date(wallClockUtc)));
+  candidate = new Date(wallClockUtc - madridOffsetMs(candidate));
+  return candidate;
+}
+
 function asksMobility(message: string) {
   const clean = normalize(message);
   return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
@@ -49,9 +86,34 @@ function asksMobility(message: string) {
 function asksNextEventTravel(message: string) {
   const clean = normalize(message);
   return /\b(proxima|proximo|siguiente)\b/.test(clean)
-    && /\b(cita|reunion|evento|compromiso)\b/.test(clean)
-    || /\bllego a tiempo\b/.test(clean)
-    || /\bllegare a tiempo\b/.test(clean);
+    && /\b(cita|reunion|evento|compromiso)\b/.test(clean);
+}
+
+function explicitArrivalRequest(message: string) {
+  const clean = normalize(message).replace(/\s+/g, " ").trim();
+  const timeMatch = clean.match(/\b(?:a|para)\s+las?\s+([01]?\d|2[0-3])[:.]([0-5]\d)\b/)
+    || clean.match(/\bllegar\s+(?:a|para)\s+las?\s+([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+  if (!timeMatch) return null;
+
+  const hhmm = `${String(Number(timeMatch[1])).padStart(2, "0")}:${timeMatch[2]}`;
+  const beforeTime = clean.slice(0, timeMatch.index ?? clean.length);
+  let destination: string | null = null;
+
+  const patterns = [
+    /(?:llego|llegare)\s+a\s+tiempo\s+(?:a|al)\s+(.+?)(?:\s+si\s+quiero\s+llegar)?$/,
+    /(?:quiero|tengo\s+que|debo)\s+llegar\s+(?:a|al)\s+(.+?)$/,
+    /(?:salir|salgo)\s+(?:para|hacia|a)\s+(.+?)(?:\s+si\s+quiero\s+llegar)?$/,
+  ];
+  for (const pattern of patterns) {
+    const match = beforeTime.match(pattern);
+    if (match?.[1]) {
+      destination = match[1].trim();
+      break;
+    }
+  }
+
+  const habitualAlias = destination && /^(?:mi\s+)?(?:trabajo|oficina|curro)$/.test(destination);
+  return { hhmm, destination: habitualAlias ? null : destination, useHabitualDestination: Boolean(habitualAlias) };
 }
 
 function validOrigin(value: SavedOrigin | undefined): value is SavedOrigin {
@@ -64,26 +126,97 @@ function validOrigin(value: SavedOrigin | undefined): value is SavedOrigin {
     && Number(value?.longitude) <= 180;
 }
 
-async function savedOrigin(): Promise<SavedOrigin | null> {
+async function savedCommute(): Promise<SavedCommute | null> {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) return null;
   try {
     const sql = neon(url);
     const rows = await sql`
-      SELECT origin_lat, origin_lng
+      SELECT origin_lat, origin_lng, destination
       FROM zyron_commute_profile
       WHERE id = 1 AND enabled = TRUE
       LIMIT 1
     `;
-    const row = rows[0] as { origin_lat?: number; origin_lng?: number } | undefined;
+    const row = rows[0] as { origin_lat?: number; origin_lng?: number; destination?: string } | undefined;
     if (!row) return null;
     const latitude = Number(row.origin_lat);
     const longitude = Number(row.origin_lng);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-    return { latitude, longitude };
+    const destination = String(row.destination || "").trim();
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !destination) return null;
+    return { origin: { latitude, longitude }, destination };
   } catch {
     return null;
   }
+}
+
+async function savedOrigin(): Promise<SavedOrigin | null> {
+  return (await savedCommute())?.origin ?? null;
+}
+
+async function targetArrivalTrip(
+  request: NonNullable<ReturnType<typeof explicitArrivalRequest>>,
+  currentLocation?: SavedOrigin,
+  now = new Date(),
+): Promise<MobilityChatResult> {
+  const commute = await savedCommute();
+  const destination = request.destination || (request.useHabitualDestination ? commute?.destination : null);
+  if (!destination) {
+    return {
+      reply: "Entiendo la hora de llegada, pero no sé qué dirección corresponde a ese destino. Guarda tu ruta habitual en Movilidad o dime una dirección concreta.",
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  const live = validOrigin(currentLocation);
+  const origin = live ? currentLocation : commute?.origin;
+  if (!origin) {
+    return {
+      reply: "Puedo calcularlo, pero necesito un punto de salida. Permite la ubicación al hacer la consulta o guarda una ruta habitual en Movilidad.",
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  const arrival = madridDateAtTime(now, request.hhmm);
+  if (arrival.getTime() <= now.getTime()) {
+    return {
+      reply: `Las ${request.hhmm} ya han pasado hoy. Dime otra hora de llegada y recalculo desde ${live ? "tu ubicación actual" : "tu punto habitual"}.`,
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  const [plan, routeNow] = await Promise.all([
+    planDepartureForArrival({ origin, destination: { address: destination }, arrivalTime: arrival, bufferMinutes: 0 }),
+    computeDrivingRoute({ origin, destination: { address: destination } }),
+  ]);
+
+  const routeMinutes = Math.max(1, Math.round(routeNow.durationSeconds / 60));
+  const trafficMinutes = routeNow.trafficDelaySeconds === null ? null : Math.max(0, Math.round(routeNow.trafficDelaySeconds / 60));
+  const trafficText = trafficMinutes === null ? "" : ` Tráfico actual: +${trafficMinutes} min.`;
+  const arrivalIfLeavingNow = new Date(now.getTime() + routeNow.durationSeconds * 1000);
+  const deltaMinutes = Math.round((arrival.getTime() - arrivalIfLeavingNow.getTime()) / 60000);
+  const leaveInMinutes = Math.round(plan.leaveInSeconds / 60);
+  const originText = live ? "tu ubicación actual" : "tu punto habitual guardado";
+
+  if (deltaMinutes >= 0) {
+    const margin = deltaMinutes > 0 ? ` Si sales ahora llegarías aproximadamente ${deltaMinutes} min antes.` : " Si sales ahora llegarías prácticamente a la hora.";
+    const leaveText = leaveInMinutes > 0
+      ? ` La salida límite estimada es a las ${formatClock(plan.recommendedDepartureTime)}, dentro de unos ${leaveInMinutes} min.`
+      : " Conviene salir ya.";
+    return {
+      reply: `Sí. Desde ${originText} hasta ${destination} calculo unos ${routeMinutes} min.${trafficText}${margin}${leaveText}`,
+      action: "mobility_target_read",
+      tool: "maps",
+    };
+  }
+
+  return {
+    reply: `No con el tráfico actual. Desde ${originText} hasta ${destination} calculo unos ${routeMinutes} min.${trafficText} Si sales ahora llegarías sobre las ${formatClock(arrivalIfLeavingNow)}, aproximadamente ${Math.abs(deltaMinutes)} min tarde.`,
+    action: "mobility_target_read",
+    tool: "maps",
+  };
 }
 
 async function nextCalendarTrip(now = new Date(), currentLocation?: SavedOrigin): Promise<MobilityChatResult> {
@@ -161,6 +294,8 @@ async function habitualCommute(currentLocation?: SavedOrigin): Promise<MobilityC
 
 export async function handleMobilityChat(message: string, options: MobilityChatOptions = {}): Promise<MobilityChatResult | null> {
   if (!asksMobility(message)) return null;
+  const target = explicitArrivalRequest(message);
+  if (target) return targetArrivalTrip(target, options.currentLocation);
   if (asksNextEventTravel(message)) return nextCalendarTrip(new Date(), options.currentLocation);
   return habitualCommute(options.currentLocation);
 }
