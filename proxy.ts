@@ -18,7 +18,10 @@ function isMobilityChatMessage(value: string) {
   const explicitMobility = /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
   const commuteArrival = /\b(llego|llegare|llegaria)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
   const timedDeparture = /\b(salgo|saldre|saldria|salir)\b.*\blas?\s+\d{1,2}(?:[:.]\d{2})?\b/.test(clean);
-  return explicitMobility || commuteArrival || timedDeparture;
+  const routineArrival = /\b(quiero|prefiero|necesito|fija|pon|cambia|actualiza|guarda)\b.*\b(llegar|llegada|hora)\b.*\b(trabajo|oficina|curro)\b/.test(clean)
+    || /\b(mi hora habitual de llegada|mi hora de llegada)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
+  const routineAddress = /\b(mi\s+(?:trabajo|oficina|curro)\s+esta\s+en|direccion\s+de\s+mi\s+(?:trabajo|oficina|curro)|(?:cambia|actualiza|corrige|guarda)\s+(?:la\s+)?direccion\s+de\s+(?:mi\s+)?(?:trabajo|oficina|curro))\b/.test(clean);
+  return explicitMobility || commuteArrival || timedDeparture || routineArrival || routineAddress;
 }
 
 async function mobilityRewrite(request: NextRequest) {
