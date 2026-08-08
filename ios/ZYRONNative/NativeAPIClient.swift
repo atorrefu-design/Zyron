@@ -30,6 +30,11 @@ struct VoicePolicyEnvelope: Decodable {
     let engagement: Engagement
 }
 
+struct NativeRealtimeCall {
+    let answerSDP: String
+    let outputMode: ZyronResponseMode
+}
+
 enum NativeAPIError: LocalizedError {
     case notAuthenticated
     case invalidResponse
@@ -83,11 +88,15 @@ final class NativeAPIClient {
         return try JSONDecoder().decode(VoicePolicyEnvelope.self, from: data)
     }
 
-    func createRealtimeCall(sdpOffer: String) async throws -> String {
-        var request = try authenticatedRequest(path: "/api/realtime/call")
+    func createRealtimeCall(
+        sdpOffer: String,
+        responseMode: ZyronResponseMode = VoiceCommunicationPolicy.current().responseMode
+    ) async throws -> NativeRealtimeCall {
+        var request = try authenticatedRequest(path: "/api/realtime/native-call")
         request.httpMethod = "POST"
         request.setValue("application/sdp", forHTTPHeaderField: "Content-Type")
         request.setValue("application/sdp", forHTTPHeaderField: "Accept")
+        request.setValue(responseMode.rawValue, forHTTPHeaderField: "X-Zyron-Output-Mode")
         request.httpBody = Data(sdpOffer.utf8)
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -98,7 +107,10 @@ final class NativeAPIClient {
         guard let answer = String(data: data, encoding: .utf8), answer.hasPrefix("v=0") else {
             throw NativeAPIError.invalidResponse
         }
-        return answer
+
+        let confirmedMode = http.value(forHTTPHeaderField: "X-Zyron-Output-Mode")
+            .flatMap(ZyronResponseMode.init(rawValue:)) ?? responseMode
+        return NativeRealtimeCall(answerSDP: answer, outputMode: confirmedMode)
     }
 
     func logout() {
