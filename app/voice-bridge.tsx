@@ -9,9 +9,73 @@ function friendlyVoiceError(detail: string, status: number) {
   if (detail === "openai_api_key_invalid_format") return "Voz · OPENAI_API_KEY no contiene una clave de OpenAI";
   if (detail === "openai_api_key_rejected") return "Voz · OpenAI ha rechazado OPENAI_API_KEY";
   if (detail === "openai_quota_exhausted") return "Voz · la cuenta API de OpenAI no tiene cuota/crédito disponible";
-  if (detail === "openai_rate_limited") return "Voz · límite temporal de OpenAI alcanzado; prueba de nuevo en unos segundos";
+  if (detail === "openai_rate_limited") return "Voz · límite temporal de OpenAI alcanzado";
   if (detail === "openai_service_unavailable") return "Voz · servicio de OpenAI no disponible ahora";
   return `Voz · TTS ${status}${detail ? ` · ${detail}` : ""}`;
+}
+
+function speechTextFromRequest(init?: RequestInit) {
+  if (typeof init?.body !== "string") return "";
+  try {
+    const body = JSON.parse(init.body) as { text?: string };
+    return typeof body.text === "string" ? body.text.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+function chooseDeviceVoice() {
+  const voices = window.speechSynthesis?.getVoices?.() ?? [];
+  const spanish = voices.filter((voice) => voice.lang.toLowerCase().startsWith("es"));
+  return spanish.find((voice) => voice.lang.toLowerCase() === "es-es")
+    || spanish.find((voice) => /m[oó]nica|marta|helena|paulina|female|mujer/i.test(voice.name))
+    || spanish[0];
+}
+
+function speakWithDevice(text: string, signal?: AbortSignal | null) {
+  return new Promise<boolean>((resolve) => {
+    if (!text || !("speechSynthesis" in window)) {
+      resolve(false);
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "es-ES";
+    utterance.rate = 0.98;
+    utterance.pitch = 0.92;
+    utterance.voice = chooseDeviceVoice() || null;
+
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      window.clearTimeout(timer);
+      resolve(ok);
+    };
+    const onAbort = () => {
+      synth.cancel();
+      finish(false);
+    };
+    const timer = window.setTimeout(() => {
+      synth.cancel();
+      finish(false);
+    }, Math.max(12_000, Math.min(45_000, text.length * 90)));
+
+    utterance.onstart = () => undefined;
+    utterance.onend = () => finish(true);
+    utterance.onerror = () => finish(false);
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    try {
+      synth.cancel();
+      synth.resume();
+      synth.speak(utterance);
+    } catch {
+      finish(false);
+    }
+  });
 }
 
 export default function VoiceBridge() {
@@ -58,6 +122,17 @@ export default function VoiceBridge() {
           } catch {
             reason = "";
           }
+
+          const fallbackText = speechTextFromRequest(init);
+          if (fallbackText && reason !== "openai_api_key_missing" && reason !== "openai_api_key_invalid_format") {
+            update("playing", "Voz · usando la voz del iPhone como respaldo", true);
+            const played = await speakWithDevice(fallbackText, init?.signal);
+            if (played) {
+              update("playing", "Voz · respuesta reproducida con la voz del iPhone", false);
+              return response;
+            }
+          }
+
           update("error", friendlyVoiceError(reason, response.status), true);
           return response;
         }
@@ -114,6 +189,7 @@ export default function VoiceBridge() {
       active = false;
       if (hideTimer) window.clearTimeout(hideTimer);
       window.fetch = originalFetch;
+      window.speechSynthesis?.cancel();
       try {
         if (contextPrototype && originalDecode) contextPrototype.decodeAudioData = originalDecode;
         if (sourcePrototype && originalStart) sourcePrototype.start = originalStart;
