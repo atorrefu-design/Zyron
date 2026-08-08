@@ -4,6 +4,7 @@ const TIME_ZONE = "Europe/Madrid";
 const QUIET_START_HOUR = 23;
 const QUIET_END_HOUR = 7;
 const CALENDAR_WARNING_MINUTES = 45;
+const TRAVEL_WARNING_MINUTES = 30;
 
 function localHour(now: Date) {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -27,18 +28,23 @@ function minutesUntil(alert: ProactiveAlert, now: Date) {
 }
 
 export function shouldDeliverPush(alert: ProactiveAlert, now = new Date()) {
-  const calendarMinutes = alert.source === "calendar" ? minutesUntil(alert, now) : null;
-  const imminentCalendar = calendarMinutes !== null
-    && calendarMinutes >= -5
-    && calendarMinutes <= CALENDAR_WARNING_MINUTES;
+  const eventMinutes = minutesUntil(alert, now);
+  const imminentCalendar = alert.source === "calendar"
+    && eventMinutes !== null
+    && eventMinutes >= -5
+    && eventMinutes <= CALENDAR_WARNING_MINUTES;
+  const imminentTravel = alert.source === "maps"
+    && eventMinutes !== null
+    && eventMinutes >= -5
+    && eventMinutes <= TRAVEL_WARNING_MINUTES;
 
   if (isQuietTime(now)) {
-    // No despertamos por correo, tareas o incidencias técnicas. Solo una cita realmente inminente.
-    return imminentCalendar;
+    // El correo, las tareas y las incidencias técnicas esperan. Una cita o salida
+    // que el propietario haya pedido vigilar sí puede romper el silencio si ya es inminente.
+    return imminentCalendar || (imminentTravel && eventMinutes !== null && eventMinutes <= 10);
   }
 
-  // En horario activo, prioridad alta o una cita ya cercana.
-  return alert.severity === "alta" || imminentCalendar;
+  return alert.severity === "alta" || imminentCalendar || imminentTravel;
 }
 
 export function selectPushCandidates(alerts: ProactiveAlert[], now = new Date(), limit = 3) {
@@ -48,7 +54,6 @@ export function selectPushCandidates(alerts: ProactiveAlert[], now = new Date(),
   for (const alert of alerts) {
     if (!shouldDeliverPush(alert, now)) continue;
 
-    // Evita que tres correos automáticos o tres tareas monopolicen una notificación.
     const count = sourceCounts.get(alert.source) ?? 0;
     if (count >= 1) continue;
 
@@ -66,5 +71,6 @@ export function pushPolicySummary(now = new Date()) {
     quietHours: `${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00`,
     quietNow: isQuietTime(now),
     calendarWarningMinutes: CALENDAR_WARNING_MINUTES,
+    travelWarningMinutes: TRAVEL_WARNING_MINUTES,
   };
 }
