@@ -29,6 +29,13 @@ type DeviceLocation = {
   capturedAt: string;
 };
 
+type RealtimeCallError = {
+  error?: string;
+  code?: string;
+  detail?: string;
+  upstreamStatus?: number;
+};
+
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
@@ -83,6 +90,15 @@ async function queryZyronCore(query: string) {
   const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
   if (!response.ok) throw new Error(data.error || `core_${response.status}`);
   return data.reply?.trim() || "El núcleo no ha devuelto información.";
+}
+
+function friendlyRealtimeError(data: RealtimeCallError, status: number) {
+  if (data.code === "openai_key_rejected") return "OpenAI ha rechazado la clave API de ZYRON.";
+  if (data.code === "openai_quota_exhausted") return "La cuenta API de ZYRON se ha quedado sin crédito.";
+  if (data.code === "openai_realtime_forbidden") return "La cuenta API todavía no tiene acceso al modelo de conversación Realtime.";
+  if (data.code === "openai_rate_limited") return "OpenAI está limitando temporalmente las conversaciones Realtime.";
+  if (data.detail) return data.detail;
+  return `No he podido abrir la conversación Realtime (${status}).`;
 }
 
 export default function RealtimeVoice({
@@ -177,9 +193,11 @@ export default function RealtimeVoice({
         updateState("thinking");
         break;
       case "response.output_audio.delta":
+      case "response.audio.delta":
         updateState("speaking");
         break;
       case "response.output_audio.done":
+      case "response.audio.done":
         updateState("listening");
         break;
       case "conversation.item.input_audio_transcription.completed": {
@@ -191,7 +209,8 @@ export default function RealtimeVoice({
         }
         break;
       }
-      case "response.output_audio_transcript.done": {
+      case "response.output_audio_transcript.done":
+      case "response.audio_transcript.done": {
         const text = event.transcript?.trim();
         const key = event.item_id || text || "";
         if (text && key && !assistantSeenRef.current.has(key)) {
@@ -204,7 +223,7 @@ export default function RealtimeVoice({
         void runTool(event);
         break;
       case "error":
-        if (event.error?.message) callbacksRef.current.onError?.(event.error.message);
+        if (event.error?.message) reportError(event.error.message);
         break;
       default:
         break;
@@ -233,46 +252,67 @@ export default function RealtimeVoice({
 
       const audio = document.createElement("audio");
       audio.autoplay = true;
-      audio.setAttribute("playsinline", "true");
+      audio.playsInline = true;
+      audio.volume = 1;
+      audio.style.display = "none";
+      document.body.appendChild(audio);
       audioRef.current = audio;
       pc.ontrack = (event) => {
         const [remoteStream] = event.streams;
         if (!remoteStream) return;
         audio.srcObject = remoteStream;
-        void audio.play().catch(() => undefined);
+        void audio.play().catch(() => {
+          callbacksRef.current.onError?.("El iPhone ha bloqueado el audio remoto. Toca de nuevo el núcleo.");
+        });
       };
 
       const channel = pc.createDataChannel("oai-events");
       dcRef.current = channel;
       channel.onopen = () => updateState("listening");
       channel.onmessage = (message) => handleEvent(String(message.data));
-      channel.onerror = () => reportError("La conexión de voz en tiempo real ha fallado.");
+      channel.onerror = () => {
+        reportError("La conexión de voz en tiempo real ha fallado.");
+        stop(false);
+      };
       channel.onclose = () => {
         if (pcRef.current) stop(false);
       };
 
       pc.onconnectionstatechange = () => {
-        if (["failed", "disconnected", "closed"].includes(pc.connectionState) && pcRef.current) {
-          reportError("Se ha perdido la conversación de voz.");
+        if (pc.connectionState === "failed" && pcRef.current) {
+          reportError("El iPhone no ha podido completar la conexión WebRTC.");
           stop(false);
         }
       };
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      const localSdp = pc.localDescription?.sdp || offer.sdp || "";
+      if (!localSdp) throw new Error("No se ha generado la oferta de audio del iPhone.");
+
       const response = await fetch("/api/realtime/call", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sdp: offer.sdp }),
+        headers: { "Content-Type": "application/sdp" },
+        body: localSdp,
         cache: "no-store",
       });
-      if (!response.ok) throw new Error(`realtime_${response.status}`);
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as RealtimeCallError;
+        throw new Error(friendlyRealtimeError(data, response.status));
+      }
+
       const answerSdp = await response.text();
+      if (!answerSdp.trim().startsWith("v=0")) {
+        throw new Error("OpenAI no ha devuelto una respuesta WebRTC válida.");
+      }
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (error) {
       const detail = error instanceof DOMException && error.name === "NotAllowedError"
         ? "Necesito permiso de micrófono para iniciar la conversación."
-        : "No he podido iniciar la voz en tiempo real.";
+        : error instanceof Error && error.message
+          ? error.message
+          : "No he podido iniciar la voz en tiempo real.";
       reportError(detail);
       stop(false);
     }
@@ -288,6 +328,7 @@ export default function RealtimeVoice({
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.srcObject = null;
+      audioRef.current.remove();
     }
     audioRef.current = null;
     if (resetState) updateState("ready");
