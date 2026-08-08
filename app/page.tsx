@@ -28,12 +28,18 @@ type CalendarCommandResponse = {
 type ProactiveAlert = {
   id: string;
   severity: "alta" | "media" | "baja";
-  source: "system" | "tasks" | "calendar" | "gmail";
+  source: "system" | "tasks" | "calendar" | "gmail" | "maps";
   title: string;
   detail: string;
   suggestedAction: string;
 };
 type ProactiveResponse = { alerts?: ProactiveAlert[] };
+type DeviceLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  capturedAt: string;
+};
 
 declare global {
   interface Window {
@@ -44,7 +50,7 @@ declare global {
 
 const initialMessages: Message[] = [{ role: "assistant", content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedo razonar con tu contexto, consultar tu memoria y gestionar tu agenda conectada." }];
 const CHAT_TIMEOUT_MS = 35_000;
-const quickPrompts = ["¿Qué tengo hoy?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
+const quickPrompts = ["¿Qué tengo hoy?", "¿A qué hora tengo que salir?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
 const PENDING_KEY = "zyron-pending-calendar-command";
 const CHOICE_KEY = "zyron-pending-calendar-choice";
 const PROACTIVE_KEY = "zyron-proactive-shown";
@@ -57,6 +63,30 @@ function isCalendarManagementCommand(message: string) {
   const clean = normalize(message);
   return /\b(anade|crea|apunta|agenda|programa|mueve|cambia|pasa|reprograma|modifica|edita|borra|elimina|cancela)\b/.test(clean)
     && /\b(evento|cita|reunion|dentista|medico|entrenamiento|partido|llamada|visita|calendario|agenda|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,2}[:.]\d{2})\b/.test(clean);
+}
+
+function isMobilityQuery(message: string) {
+  const clean = normalize(message);
+  return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+}
+
+function currentDeviceLocation() {
+  return new Promise<DeviceLocation | null>((resolve) => {
+    if (!("geolocation" in navigator)) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
+      }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 30_000 },
+    );
+  });
 }
 
 function isConfirmation(message: string) {
@@ -251,10 +281,11 @@ export default function Home() {
       } else if (isCalendarManagementCommand(clean)) {
         reply = await runCalendarCommand(clean);
       } else {
+        const deviceLocation = isMobilityQuery(clean) ? await currentDeviceLocation() : null;
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: nextMessages }),
+          body: JSON.stringify({ messages: nextMessages, deviceLocation }),
           signal: controller.signal,
           cache: "no-store",
         });
@@ -308,7 +339,7 @@ export default function Home() {
   }
 
   async function logout() {
-    window.speechSynthesis?.cancel();
+    window.speechSynthesis.cancel();
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     window.location.assign("/login");
   }
@@ -320,6 +351,7 @@ export default function Home() {
         <div className="headerActions">
           <a className="ghostButton navLink" href="/briefing">Briefing</a>
           <a className="ghostButton navLink" href="/calendar">Calendar</a>
+          <a className="ghostButton navLink" href="/maps">Movilidad</a>
           <a className="ghostButton navLink" href="/dashboard">Panel</a>
           <a className="ghostButton navLink" href="/goals">Objetivos</a>
           <a className="ghostButton navLink" href="/tasks">Tareas</a>
@@ -332,14 +364,14 @@ export default function Home() {
       <section className="panel">
         <div className="eyebrow">Sistema privado · Aarón</div>
         <h1>Hablar</h1>
-        <p className="subtitle">Conversación con memoria, voz, tareas, alertas y gestión de Google Calendar.</p>
+        <p className="subtitle">Conversación con memoria, voz, tareas, alertas, Google Calendar y movilidad con tráfico.</p>
         <div className="voiceBar">
           <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening ? "Detener escucha" : "Hablar con ZYRON"}>
             {listening ? "■" : loading ? "…" : speaking ? "◖" : "●"}
           </button>
           <div>
             <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo…" : speechSupported ? "Toca el núcleo para hablar" : "Voz no disponible"}</strong>
-            <div className="voiceHint">ZYRON revisa tareas, agenda, correo y salud del núcleo para avisarte si detecta algo prioritario.</div>
+            <div className="voiceHint">ZYRON revisa tareas, agenda, correo, tráfico y salud del núcleo para avisarte si detecta algo prioritario.</div>
           </div>
           <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
         </div>
@@ -352,10 +384,10 @@ export default function Home() {
           <div ref={chatEndRef} />
         </div>
         <form className="composer" onSubmit={sendMessage}>
-          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Pasa el dentista de mañana a las 19:00" autoComplete="off" />
+          <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: ¿A qué hora tengo que salir?" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
-        <div className="note">Acceso exclusivo para Aarón. Las claves y la memoria permanecen en el servidor.</div>
+        <div className="note">Acceso exclusivo para Aarón. En consultas de movilidad, la ubicación actual se envía solo para calcular esa respuesta y no se guarda como historial de localización.</div>
       </section>
     </main>
   );
