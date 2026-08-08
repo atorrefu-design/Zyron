@@ -9,6 +9,35 @@ const PUBLIC_PATHS = [
   "/favicon.ico",
 ];
 
+function normalize(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function isMobilityChatMessage(value: string) {
+  const clean = normalize(value);
+  return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
+}
+
+async function mobilityRewrite(request: NextRequest) {
+  if (request.nextUrl.pathname !== "/api/chat" || request.method !== "POST") return null;
+  try {
+    const body = (await request.clone().json()) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const message = [...(body.messages ?? [])]
+      .reverse()
+      .find((item) => item.role === "user" && typeof item.content === "string")
+      ?.content;
+    if (!message || !isMobilityChatMessage(message)) return null;
+
+    const url = request.nextUrl.clone();
+    url.pathname = "/api/maps/chat";
+    return NextResponse.rewrite(url);
+  } catch {
+    return null;
+  }
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -19,7 +48,10 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get("zyron_owner_session")?.value;
   const authenticated = await verifyOwnerSession(token);
 
-  if (authenticated) return NextResponse.next();
+  if (authenticated) {
+    const rewrite = await mobilityRewrite(request);
+    return rewrite ?? NextResponse.next();
+  }
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
