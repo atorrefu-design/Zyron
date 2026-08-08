@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Message = { role: "user" | "assistant"; content: string };
 type CoreState = "ready" | "listening" | "thinking" | "speaking";
+type InteractionMode = "voice" | "text";
 type SpeechRecognitionEventLike = { results: ArrayLike<{ 0: { transcript: string } }> };
 type SpeechRecognitionInstance = {
   lang: string;
@@ -116,16 +117,67 @@ function proactiveMessage(alerts: ProactiveAlert[]) {
   return `Aarón, antes de que me preguntes nada he detectado ${selected.length} asunto${selected.length === 1 ? "" : "s"} que conviene mirar:\n${lines.join("\n")}`;
 }
 
+function textForSpeech(value: string) {
+  return value
+    .replace(/[⭐●•▪◦]/g, "")
+    .replace(/^\s*\d+[.)]\s*/gm, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\n+/g, ". ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function chunkSpeech(value: string, maxLength = 220) {
+  const clean = textForSpeech(value);
+  if (!clean) return [];
+  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
+  const chunks: string[] = [];
+  let current = "";
+
+  const flush = () => {
+    const ready = current.trim();
+    if (ready) chunks.push(ready);
+    current = "";
+  };
+
+  for (const rawSentence of sentences) {
+    const sentence = rawSentence.trim();
+    if (!sentence) continue;
+    if (sentence.length > maxLength) {
+      flush();
+      const words = sentence.split(/\s+/);
+      let piece = "";
+      for (const word of words) {
+        const candidate = `${piece} ${word}`.trim();
+        if (candidate.length > maxLength && piece) {
+          chunks.push(piece);
+          piece = word;
+        } else {
+          piece = candidate;
+        }
+      }
+      if (piece) chunks.push(piece);
+      continue;
+    }
+    const candidate = `${current} ${sentence}`.trim();
+    if (candidate.length > maxLength && current) flush();
+    current = `${current} ${sentence}`.trim();
+  }
+  flush();
+  return chunks;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [pendingCalendar, setPendingCalendar] = useState<PendingCalendarCommand | null>(null);
   const [pendingChoice, setPendingChoice] = useState<PendingCalendarChoice | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const voiceConversationRef = useRef(false);
+  const speechGenerationRef = useRef(0);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const speechSupported = useMemo(() => typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition), []);
@@ -193,13 +245,21 @@ export default function Home() {
     recognition.continuous = false;
     recognition.onstart = () => setListening(true);
     recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = () => {
+      setListening(false);
+      voiceConversationRef.current = false;
+    };
     recognition.onresult = (event) => {
       const transcript = event.results[0]?.[0]?.transcript?.trim();
-      if (transcript) void sendText(transcript);
+      if (transcript) void sendText(transcript, "voice");
     };
     recognitionRef.current = recognition;
-    return () => recognition.stop();
+    return () => {
+      voiceConversationRef.current = false;
+      speechGenerationRef.current += 1;
+      recognition.stop();
+      window.speechSynthesis?.cancel();
+    };
   }, []);
 
   function chooseSpanishVoice(): SpeechSynthesisVoice | undefined {
@@ -210,18 +270,72 @@ export default function Home() {
       || spanish[0];
   }
 
-  function speak(text: string) {
-    if (!text || !voiceEnabled || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "es-ES";
-    utterance.rate = 0.98;
-    utterance.pitch = 0.82;
-    utterance.voice = chooseSpanishVoice() || null;
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+  function stopSpeech() {
+    speechGenerationRef.current += 1;
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+  }
+
+  function resumeVoiceConversation() {
+    if (!voiceConversationRef.current) return;
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+    window.setTimeout(() => {
+      if (!voiceConversationRef.current) return;
+      try {
+        recognition.start();
+      } catch {
+        voiceConversationRef.current = false;
+        setListening(false);
+      }
+    }, 300);
+  }
+
+  function speak(text: string, resumeListening = false) {
+    if (!text || !("speechSynthesis" in window)) {
+      if (resumeListening) resumeVoiceConversation();
+      return;
+    }
+
+    const chunks = chunkSpeech(text);
+    if (!chunks.length) {
+      if (resumeListening) resumeVoiceConversation();
+      return;
+    }
+
+    stopSpeech();
+    const generation = speechGenerationRef.current;
+    let index = 0;
+    setSpeaking(true);
+
+    const finish = () => {
+      if (speechGenerationRef.current !== generation) return;
+      setSpeaking(false);
+      if (resumeListening) resumeVoiceConversation();
+    };
+
+    const playNext = () => {
+      if (speechGenerationRef.current !== generation) return;
+      const chunk = chunks[index];
+      if (!chunk) {
+        finish();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.lang = "es-ES";
+      utterance.rate = 0.98;
+      utterance.pitch = 0.88;
+      utterance.voice = chooseSpanishVoice() || null;
+      utterance.onend = () => {
+        index += 1;
+        playNext();
+      };
+      utterance.onerror = () => finish();
+      window.speechSynthesis.speak(utterance);
+    };
+
+    window.speechSynthesis.resume();
+    playNext();
   }
 
   async function runCalendarCommand(message: string, options?: { eventId?: string; confirmation?: boolean; originalMessage?: string }) {
@@ -260,9 +374,18 @@ export default function Home() {
     return data.reply.trim();
   }
 
-  async function sendText(text: string) {
+  async function sendText(text: string, mode: InteractionMode = "text") {
     const clean = text.trim();
     if (!clean || loading) return;
+
+    if (mode === "text") {
+      voiceConversationRef.current = false;
+      stopSpeech();
+      if (listening) recognitionRef.current?.stop();
+    } else {
+      voiceConversationRef.current = true;
+    }
+
     const nextMessages = [...messages, { role: "user" as const, content: clean }];
     setMessages(nextMessages);
     setInput("");
@@ -310,7 +433,7 @@ export default function Home() {
         reply = data.reply.trim();
       }
       setMessages((current) => [...current, { role: "assistant", content: reply }]);
-      speak(reply);
+      if (mode === "voice") speak(reply, true);
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError"
         ? "La consulta ha tardado demasiado y la he detenido. Prueba de nuevo en unos segundos."
@@ -318,33 +441,44 @@ export default function Home() {
           ? `No he podido responder: ${error.message}.`
           : "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
       setMessages((current) => [...current, { role: "assistant", content: message }]);
-      speak(message);
+      if (mode === "voice") speak(message, true);
     } finally {
       window.clearTimeout(timeout);
       setLoading(false);
     }
   }
 
-  function sendMessage(event: FormEvent) { event.preventDefault(); void sendText(input); }
+  function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    void sendText(input, "text");
+  }
 
   function toggleListening() {
     const recognition = recognitionRef.current;
     if (!recognition || loading) return;
     try {
-      if (listening) recognition.stop();
-      else {
-        window.speechSynthesis?.cancel();
-        setSpeaking(false);
-        recognition.start();
+      if (listening || speaking || voiceConversationRef.current) {
+        voiceConversationRef.current = false;
+        if (listening) recognition.stop();
+        stopSpeech();
+        return;
       }
+
+      voiceConversationRef.current = true;
+      stopSpeech();
+      window.speechSynthesis?.resume();
+      window.speechSynthesis?.getVoices();
+      recognition.start();
     } catch {
+      voiceConversationRef.current = false;
       setListening(false);
     }
   }
 
   function clearConversation() {
-    window.speechSynthesis?.cancel();
-    setSpeaking(false);
+    voiceConversationRef.current = false;
+    stopSpeech();
+    if (listening) recognitionRef.current?.stop();
     setPendingCalendar(null);
     setPendingChoice(null);
     setMessages(initialMessages);
@@ -354,7 +488,8 @@ export default function Home() {
   }
 
   async function logout() {
-    window.speechSynthesis.cancel();
+    voiceConversationRef.current = false;
+    stopSpeech();
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     window.location.assign("/login");
   }
@@ -381,17 +516,16 @@ export default function Home() {
         <h1>Hablar</h1>
         <p className="subtitle">Conversación con memoria, voz, tareas, alertas, Google Calendar y movilidad con tráfico.</p>
         <div className="voiceBar">
-          <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening ? "Detener escucha" : "Hablar con ZYRON"}>
+          <button type="button" className={`orb ${coreState !== "ready" ? coreState : ""}`} onClick={toggleListening} disabled={!speechSupported || loading} aria-label={listening || speaking ? "Terminar conversación por voz" : "Hablar con ZYRON"}>
             {listening ? "■" : loading ? "…" : speaking ? "◖" : "●"}
           </button>
           <div>
-            <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo…" : speechSupported ? "Toca el núcleo para hablar" : "Voz no disponible"}</strong>
-            <div className="voiceHint">ZYRON revisa tareas, agenda, correo, tráfico y salud del núcleo para avisarte si detecta algo prioritario.</div>
+            <strong>{listening ? "Te escucho…" : loading ? "Estoy pensando…" : speaking ? "Te respondo por voz…" : speechSupported ? "Toca el núcleo para iniciar una conversación" : "Voz no disponible"}</strong>
+            <div className="voiceHint">🎙️ Si me hablas, te respondo por voz y sigo escuchando. ⌨️ Si escribes o pulsas una consulta rápida, te respondo por texto.</div>
           </div>
-          <button type="button" className="voiceToggle" onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? "🔊 Voz activa" : "🔇 Voz silenciada"}</button>
         </div>
         <div className="headerActions" aria-label="Consultas rápidas">
-          {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt)}>{prompt}</button>)}
+          {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt, "text")}>{prompt}</button>)}
         </div>
         <div className="chat" aria-live="polite">
           {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>{message.content}</div>)}
