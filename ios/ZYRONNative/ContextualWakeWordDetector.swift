@@ -33,6 +33,8 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
     private var rolling: Int16RingBuffer
     private var porcupinePending: [Int16] = []
     private var porcupineOffset = 0
+    private var porcupineBufferStartAbsolute: Int64 = 0
+    private var totalSamplesIngested: Int64 = 0
     private var capture: InvocationCapture?
 
     init(
@@ -89,6 +91,8 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
         rolling.removeAll()
         porcupinePending.removeAll(keepingCapacity: true)
         porcupineOffset = 0
+        porcupineBufferStartAbsolute = 0
+        totalSamplesIngested = 0
         capture = nil
 
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
@@ -115,6 +119,8 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
         capture = nil
         porcupinePending.removeAll(keepingCapacity: true)
         porcupineOffset = 0
+        porcupineBufferStartAbsolute = 0
+        totalSamplesIngested = 0
     }
 
     func delete() {
@@ -129,9 +135,12 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
     private func consume(_ inputBuffer: AVAudioPCMBuffer) {
         guard running, let samples = convert(inputBuffer), !samples.isEmpty else { return }
 
+        let absoluteStart = totalSamplesIngested
         rolling.append(contentsOf: samples)
+        totalSamplesIngested += Int64(samples.count)
+
         appendPostWakeAudio(samples)
-        detectWakeWord(in: samples)
+        detectWakeWord(in: samples, absoluteStart: absoluteStart)
     }
 
     private func convert(_ input: AVAudioPCMBuffer) -> [Int16]? {
@@ -168,19 +177,24 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
         return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
     }
 
-    private func detectWakeWord(in samples: [Int16]) {
+    private func detectWakeWord(in samples: [Int16], absoluteStart: Int64) {
+        if porcupinePending.isEmpty {
+            porcupineBufferStartAbsolute = absoluteStart
+        }
         porcupinePending.append(contentsOf: samples)
         let frameLength = Porcupine.frameLength
 
         while porcupinePending.count - porcupineOffset >= frameLength {
-            let end = porcupineOffset + frameLength
-            let frame = Array(porcupinePending[porcupineOffset..<end])
+            let start = porcupineOffset
+            let end = start + frameLength
+            let frame = Array(porcupinePending[start..<end])
+            let frameAbsoluteEnd = porcupineBufferStartAbsolute + Int64(end)
             porcupineOffset = end
 
             guard capture == nil else { continue }
             do {
                 if try porcupine.process(pcm: frame) >= 0 {
-                    beginInvocationCapture()
+                    beginInvocationCapture(wakeAbsoluteSample: frameAbsoluteEnd)
                 }
             } catch {
                 // A single failed frame must not kill the passive listener.
@@ -189,18 +203,23 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
 
         if porcupineOffset > frameLength * 8 {
             porcupinePending.removeFirst(porcupineOffset)
+            porcupineBufferStartAbsolute += Int64(porcupineOffset)
             porcupineOffset = 0
         }
     }
 
-    private func beginInvocationCapture() {
+    private func beginInvocationCapture(wakeAbsoluteSample: Int64) {
         let preWake = rolling.snapshot()
+        let rollingStartAbsolute = totalSamplesIngested - Int64(preWake.count)
+        let rawWakeOffset = wakeAbsoluteSample - rollingStartAbsolute
+        let wakeOffset = max(0, min(preWake.count, Int(rawWakeOffset)))
         let remaining = Int(
             (Double(Porcupine.sampleRate) * Double(postWakeDurationMs)) / 1000.0
         )
+
         capture = InvocationCapture(
             samples: preWake,
-            wakeSampleOffset: preWake.count,
+            wakeSampleOffset: wakeOffset,
             remainingPostWakeSamples: max(1, remaining)
         )
 
