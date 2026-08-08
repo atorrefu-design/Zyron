@@ -28,6 +28,7 @@ function safeError(error: unknown) {
   if (error.message === "openai_api_key_missing") return "openai_api_key_missing";
   if (error.message === "openai_api_key_invalid_format") return "openai_api_key_invalid_format";
   if (status === 401 || code === "invalid_api_key") return "openai_api_key_rejected";
+  if (code === "insufficient_quota") return "openai_quota_exhausted";
   if (status === 429) return "openai_rate_limited";
   if (status >= 500) return "openai_service_unavailable";
   return "speech_generation_failed";
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const detail = safeError(error);
     console.error("ZYRON_TTS_ERROR", detail);
-    const status = detail.startsWith("openai_api_key_") ? 503 : 500;
+    const status = detail.startsWith("openai_api_key_") ? 503 : detail === "openai_quota_exhausted" ? 402 : 500;
     return Response.json({ error: "speech_generation_failed", detail }, { status });
   }
 }
