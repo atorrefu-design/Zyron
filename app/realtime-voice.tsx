@@ -36,6 +36,27 @@ type RealtimeCallError = {
   upstreamStatus?: number;
 };
 
+type PlaceSearchResult = {
+  id: string;
+  name: string;
+  address: string;
+  rating: number | null;
+  reviewCount: number | null;
+  openNow: boolean | null;
+  googleMapsUri: string | null;
+};
+
+type WakeLockSentinelLike = {
+  released?: boolean;
+  release: () => Promise<void>;
+};
+
+type NavigatorWithWakeLock = Navigator & {
+  wakeLock?: {
+    request: (type: "screen") => Promise<WakeLockSentinelLike>;
+  };
+};
+
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
@@ -92,6 +113,42 @@ async function queryZyronCore(query: string) {
   return data.reply?.trim() || "El núcleo no ha devuelto información.";
 }
 
+async function searchRealPlaces(query: string) {
+  const location = await currentDeviceLocation();
+  const response = await fetch("/api/places/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query,
+      latitude: location?.latitude,
+      longitude: location?.longitude,
+    }),
+    cache: "no-store",
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    places?: PlaceSearchResult[];
+    error?: string;
+    detail?: string;
+  };
+  if (!response.ok) throw new Error(data.detail || data.error || `places_${response.status}`);
+
+  const places = data.places ?? [];
+  if (!places.length) return "No se han encontrado lugares que encajen con esa búsqueda.";
+
+  return JSON.stringify({
+    source: "Google Places",
+    query,
+    places: places.map((place) => ({
+      name: place.name,
+      address: place.address,
+      rating: place.rating,
+      reviewCount: place.reviewCount,
+      openNow: place.openNow,
+      googleMapsUri: place.googleMapsUri,
+    })),
+  });
+}
+
 function friendlyRealtimeError(data: RealtimeCallError, status: number) {
   if (data.code === "openai_key_rejected") return "OpenAI ha rechazado la clave API de ZYRON.";
   if (data.code === "openai_quota_exhausted") return "La cuenta API de ZYRON se ha quedado sin crédito.";
@@ -113,6 +170,8 @@ export default function RealtimeVoice({
   const dcRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+  const activeRef = useRef(false);
   const userSeenRef = useRef(new Set<string>());
   const assistantSeenRef = useRef(new Set<string>());
   const callbacksRef = useRef({ onStateChange, onUserTranscript, onAssistantTranscript, onError });
@@ -131,6 +190,53 @@ export default function RealtimeVoice({
     callbacksRef.current.onError?.(message);
   }
 
+  async function requestScreenWakeLock() {
+    if (document.visibilityState !== "visible" || !activeRef.current) return;
+    const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock;
+    if (!wakeLock || (wakeLockRef.current && !wakeLockRef.current.released)) return;
+    try {
+      wakeLockRef.current = await wakeLock.request("screen");
+    } catch {
+      // Wake Lock is an enhancement. Voice must continue even if iOS rejects it.
+    }
+  }
+
+  async function releaseScreenWakeLock() {
+    const sentinel = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (!sentinel || sentinel.released) return;
+    await sentinel.release().catch(() => undefined);
+  }
+
+  function setMediaSessionPlaying(playing: boolean) {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      if (playing) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: "Conversación con ZYRON",
+          artist: "ZYRON",
+          album: "Asistente personal",
+        });
+        navigator.mediaSession.playbackState = "playing";
+      } else {
+        navigator.mediaSession.playbackState = "none";
+        navigator.mediaSession.metadata = null;
+      }
+    } catch {
+      // Media Session support varies between Safari contexts.
+    }
+  }
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && activeRef.current) {
+        void requestScreenWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   function sendEvent(event: Record<string, unknown>) {
     const channel = dcRef.current;
     if (!channel || channel.readyState !== "open") return false;
@@ -139,7 +245,9 @@ export default function RealtimeVoice({
   }
 
   async function runTool(event: RealtimeEvent) {
-    if (event.name !== "consultar_nucleo_zyron" || !event.call_id) return;
+    if (!event.call_id || !event.name) return;
+    if (event.name !== "consultar_nucleo_zyron" && event.name !== "buscar_lugares_reales") return;
+
     let query = "";
     try {
       const args = JSON.parse(event.arguments || "{}") as { query?: string };
@@ -159,16 +267,21 @@ export default function RealtimeVoice({
 
     updateState("thinking");
     try {
-      const result = await queryZyronCore(query);
+      const result = event.name === "buscar_lugares_reales"
+        ? await searchRealPlaces(query)
+        : await queryZyronCore(query);
       sendEvent({
         type: "conversation.item.create",
         item: { type: "function_call_output", call_id: event.call_id, output: result },
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : "error_desconocido";
+      const prefix = event.name === "buscar_lugares_reales"
+        ? "No he podido buscar lugares reales"
+        : "No he podido consultar el núcleo privado";
       sendEvent({
         type: "conversation.item.create",
-        item: { type: "function_call_output", call_id: event.call_id, output: `No he podido consultar el núcleo privado: ${detail}.` },
+        item: { type: "function_call_output", call_id: event.call_id, output: `${prefix}: ${detail}.` },
       });
     }
     sendEvent({ type: "response.create" });
@@ -233,6 +346,8 @@ export default function RealtimeVoice({
   async function start() {
     if (disabled || pcRef.current) return;
     updateState("connecting");
+    activeRef.current = true;
+    void requestScreenWakeLock();
     userSeenRef.current.clear();
     assistantSeenRef.current.clear();
 
@@ -253,6 +368,7 @@ export default function RealtimeVoice({
       const audio = document.createElement("audio");
       audio.autoplay = true;
       audio.setAttribute("playsinline", "true");
+      audio.setAttribute("webkit-playsinline", "true");
       audio.volume = 1;
       audio.style.display = "none";
       document.body.appendChild(audio);
@@ -261,7 +377,9 @@ export default function RealtimeVoice({
         const [remoteStream] = event.streams;
         if (!remoteStream) return;
         audio.srcObject = remoteStream;
-        void audio.play().catch(() => {
+        void audio.play().then(() => {
+          setMediaSessionPlaying(true);
+        }).catch(() => {
           callbacksRef.current.onError?.("El iPhone ha bloqueado el audio remoto. Toca de nuevo el núcleo.");
         });
       };
@@ -319,6 +437,9 @@ export default function RealtimeVoice({
   }
 
   function stop(resetState = true) {
+    activeRef.current = false;
+    void releaseScreenWakeLock();
+    setMediaSessionPlaying(false);
     dcRef.current?.close();
     dcRef.current = null;
     pcRef.current?.close();
@@ -362,7 +483,7 @@ export default function RealtimeVoice({
       </button>
       <div>
         <strong>{label}</strong>
-        <div className="voiceHint">🎙️ Conversación en tiempo real: habla con normalidad, interrúmpeme si quieres y continúa sin volver a tocar el botón.</div>
+        <div className="voiceHint">🎙️ Conversación en tiempo real: habla con normalidad, interrúmpeme si quieres y continúa sin volver a tocar el botón. Durante la conversación mantengo la pantalla despierta para evitar que iOS suspenda el audio.</div>
       </div>
     </>
   );
