@@ -46,11 +46,11 @@ final class RealtimeConversationBridge {
             onSpeakingChanged?(false)
 
         case "response.output_audio.delta", "response.audio.delta":
-            sessionCoordinator.registerConversationActivity()
+            sessionCoordinator.registerAssistantActivity()
             onSpeakingChanged?(true)
 
         case "response.output_audio.done", "response.audio.done":
-            sessionCoordinator.registerConversationActivity()
+            sessionCoordinator.registerAssistantActivity()
             onSpeakingChanged?(false)
 
         case "conversation.item.input_audio_transcription.completed":
@@ -62,13 +62,13 @@ final class RealtimeConversationBridge {
         case "response.output_audio_transcript.done", "response.audio_transcript.done":
             let text = event.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
-            sessionCoordinator.registerConversationActivity()
+            sessionCoordinator.registerAssistantActivity()
             onAssistantTranscript?(text)
 
         case "response.output_text.done":
             let text = event.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
-            sessionCoordinator.registerConversationActivity()
+            sessionCoordinator.registerAssistantActivity()
             outputRouter.handleAssistantText(text)
             onAssistantText?(text)
 
@@ -114,6 +114,6 @@ final class RealtimeConversationBridge {
         if let response = RealtimeClientEventCodec.responseCreate() {
             sender.sendRealtimeEvent(response)
         }
-        sessionCoordinator.registerConversationActivity()
+        sessionCoordinator.registerAssistantActivity()
     }
 }
