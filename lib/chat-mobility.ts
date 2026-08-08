@@ -14,6 +14,10 @@ export type MobilityChatResult = {
   tool: "maps";
 };
 
+export type MobilityChatOptions = {
+  currentLocation?: SavedOrigin;
+};
+
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
@@ -50,6 +54,16 @@ function asksNextEventTravel(message: string) {
     || /\bllegare a tiempo\b/.test(clean);
 }
 
+function validOrigin(value: SavedOrigin | undefined): value is SavedOrigin {
+  return Boolean(value)
+    && Number.isFinite(value?.latitude)
+    && Number.isFinite(value?.longitude)
+    && Number(value?.latitude) >= -90
+    && Number(value?.latitude) <= 90
+    && Number(value?.longitude) >= -180
+    && Number(value?.longitude) <= 180;
+}
+
 async function savedOrigin(): Promise<SavedOrigin | null> {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) return null;
@@ -72,7 +86,7 @@ async function savedOrigin(): Promise<SavedOrigin | null> {
   }
 }
 
-async function nextCalendarTrip(now = new Date()): Promise<MobilityChatResult> {
+async function nextCalendarTrip(now = new Date(), currentLocation?: SavedOrigin): Promise<MobilityChatResult> {
   const events = await listCalendarEvents({
     timeMin: now,
     timeMax: new Date(now.getTime() + 24 * HOUR),
@@ -91,10 +105,11 @@ async function nextCalendarTrip(now = new Date()): Promise<MobilityChatResult> {
     };
   }
 
-  const origin = await savedOrigin();
+  const live = validOrigin(currentLocation);
+  const origin = live ? currentLocation : await savedOrigin();
   if (!origin) {
     return {
-      reply: `Tu próxima cita presencial es “${next.title}” en ${next.location}, pero todavía no tengo un punto habitual de salida guardado. Abre Movilidad una vez y activa los avisos de ruta habitual para poder hacer este cálculo desde el chat.`,
+      reply: `Tu próxima cita presencial es “${next.title}” en ${next.location}, pero no tengo un punto de salida disponible. Permite la ubicación al preguntarme por movilidad o abre Movilidad una vez y guarda tu ruta habitual.`,
       action: "mobility_calendar_read",
       tool: "maps",
     };
@@ -114,16 +129,17 @@ async function nextCalendarTrip(now = new Date()): Promise<MobilityChatResult> {
   const timing = leaveMinutes <= 0
     ? "Con 10 min de margen, conviene salir ya."
     : `Con 10 min de margen, te recomiendo salir a las ${formatClock(estimate.recommendedDepartureTime)}, dentro de unos ${leaveMinutes} min.`;
+  const originText = live ? "desde tu ubicación actual" : "desde tu punto habitual guardado";
 
   return {
-    reply: `Tu próxima cita presencial es “${next.title}” el ${formatEventStart(next.start)} en ${next.location}. El trayecto estimado desde tu punto habitual guardado es de ${routeMinutes} min.${trafficText} ${timing}`,
+    reply: `Tu próxima cita presencial es “${next.title}” el ${formatEventStart(next.start)} en ${next.location}. El trayecto estimado ${originText} es de ${routeMinutes} min.${trafficText} ${timing}`,
     action: "mobility_calendar_read",
     tool: "maps",
   };
 }
 
-async function habitualCommute(): Promise<MobilityChatResult> {
-  const commute = await buildCommuteBriefing();
+async function habitualCommute(currentLocation?: SavedOrigin): Promise<MobilityChatResult> {
+  const commute = await buildCommuteBriefing(new Date(), validOrigin(currentLocation) ? currentLocation : undefined);
   if (commute.state === "planned") {
     const leaveInMinutes = commute.recommendedDepartureTime
       ? Math.round((new Date(commute.recommendedDepartureTime).getTime() - Date.now()) / 60000)
@@ -143,8 +159,8 @@ async function habitualCommute(): Promise<MobilityChatResult> {
   };
 }
 
-export async function handleMobilityChat(message: string): Promise<MobilityChatResult | null> {
+export async function handleMobilityChat(message: string, options: MobilityChatOptions = {}): Promise<MobilityChatResult | null> {
   if (!asksMobility(message)) return null;
-  if (asksNextEventTravel(message)) return nextCalendarTrip();
-  return habitualCommute();
+  if (asksNextEventTravel(message)) return nextCalendarTrip(new Date(), options.currentLocation);
+  return habitualCommute(options.currentLocation);
 }
