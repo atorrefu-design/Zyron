@@ -1,8 +1,22 @@
 # ZYRON Native — preparación exacta en Xcode
 
-Este documento está pensado para reducir al mínimo el tiempo delante del Mac. El objetivo de la primera sesión no es diseñar interfaz: es instalar ZYRON en un iPhone físico y validar entrada/salida de audio con la pantalla bloqueada.
+Este documento está pensado para reducir al mínimo el tiempo delante del Mac. El objetivo de la primera sesión es instalar ZYRON en un iPhone físico y validar entrada/salida de audio con la pantalla bloqueada.
 
-## 1. Crear el proyecto
+## Ruta automática recomendada
+
+La app SwiftUI, su pantalla de configuración, los paquetes y el target de tests ya están definidos en `ios/project.yml`.
+
+En Terminal:
+
+```bash
+cd ios
+chmod +x bootstrap-xcode.sh
+./bootstrap-xcode.sh
+```
+
+Después, en Xcode, solo hay que elegir el Apple Development Team en `ZYRON > Signing & Capabilities`, conectar el iPhone y pulsar Run. La ruta manual que sigue queda como referencia o recuperación.
+
+## 1. Crear el proyecto manualmente
 
 - Xcode > Create New Project > iOS > App.
 - Product Name: `ZYRON`.
@@ -29,9 +43,7 @@ El código usa `Porcupine` para detectar localmente la palabra `ZYRON`.
 
 ### WebRTC
 
-Añadir un paquete iOS que exponga el módulo `WebRTC` y el XCFramework de libWebRTC. El transporte preparado en `WebRTCNativeTransport.swift` está aislado tras `#if canImport(WebRTC)`, por lo que Xcode mostrará claramente si falta esta dependencia.
-
-No fijar una versión a ciegas antes de que Xcode resuelva las versiones disponibles. Elegir una versión estable compatible con la versión instalada de Xcode.
+Añadir `https://github.com/stasel/WebRTC.git`, producto `WebRTC`. El proyecto reproducible fija la versión `151.0.0`.
 
 ## 4. Permisos
 
@@ -54,16 +66,11 @@ La conversación activa usa `AVAudioSession` con categoría `playAndRecord` y mo
 
 ## 6. Recursos locales de wake word
 
-Añadir al bundle de la app:
+No hay que copiar modelos al bundle. La pantalla nativa descarga el modelo español fijado, verifica su SHA-256 y genera `ZYRON.ppn` mediante Picovoice la primera vez. Ambos quedan en Application Support con protección de datos del dispositivo.
 
-- el modelo personalizado `ZYRON.ppn`;
-- el modelo español de Porcupine `.pv` si el modelo personalizado lo necesita.
+La AccessKey de Picovoice se introduce en la app y queda en Keychain. No se guarda en el repositorio ni en `UserDefaults`.
 
-Estos archivos están ignorados por Git y no deben subirse al repositorio.
-
-La AccessKey de Picovoice debe introducirse solo en configuración local del Mac/iPhone. `NativeVoiceBootstrap` la recibe como parámetro y no contiene ningún secreto hardcodeado.
-
-## 7. Primer arranque
+## 7. Primer arranque manual
 
 Antes de activar la escucha permanente:
 
