@@ -75,5 +75,5 @@ export async function getZyronHealth(): Promise<ZyronHealth> {
 
   const required = Object.values(checks);
   const ok = required.every((check) => check.configured && check.reachable !== false);
-  return { ok, service: "zyron-core", version: "0.5.0", checks, time: new Date().toISOString() };
+  return { ok, service: "zyron-core", version: "0.5.1", checks, time: new Date().toISOString() };
 }
