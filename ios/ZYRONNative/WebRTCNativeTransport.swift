@@ -38,7 +38,7 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
         disconnectInternal(notify: false)
         deliberateClose = false
 
-        let connection = try makePeerConnection()
+        let connection = makePeerConnection()
         peerConnection = connection
         try attachLocalAudio(to: connection)
         createDataChannel(on: connection)
@@ -72,7 +72,7 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
         disconnectInternal(notify: false)
     }
 
-    private func makePeerConnection() throws -> RTCPeerConnection {
+    private func makePeerConnection() -> RTCPeerConnection {
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
         configuration.continualGatheringPolicy = .gatherContinually
@@ -82,14 +82,11 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
             optionalConstraints: ["DtlsSrtpKeyAgreement": "true"]
         )
 
-        guard let connection = Self.factory.peerConnection(
+        return Self.factory.peerConnection(
             with: configuration,
             constraints: constraints,
             delegate: self
-        ) else {
-            throw WebRTCNativeTransportError.peerConnectionUnavailable
-        }
-        return connection
+        )
     }
 
     private func attachLocalAudio(to connection: RTCPeerConnection) throws {
@@ -318,14 +315,11 @@ extension WebRTCNativeTransport: RTCPeerConnectionDelegate {
 }
 
 enum WebRTCNativeTransportError: LocalizedError {
-    case peerConnectionUnavailable
     case audioTrackUnavailable
     case offerUnavailable
 
     var errorDescription: String? {
         switch self {
-        case .peerConnectionUnavailable:
-            return "No se ha podido crear la conexión WebRTC nativa de ZYRON."
         case .audioTrackUnavailable:
             return "No se ha podido conectar el micrófono a WebRTC."
         case .offerUnavailable:
