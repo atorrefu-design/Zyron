@@ -10,39 +10,33 @@ function getApiKey() {
 
 const realtimeSession = {
   type: "realtime",
-  model: "gpt-realtime",
+  model: "gpt-realtime-2.1-mini",
   output_modalities: ["audio"],
   instructions: [
     "Eres ZYRON, el asistente personal de Aarón.",
     "Habla siempre en español de España salvo que Aarón cambie de idioma.",
-    "Tu voz debe sonar humana, cercana, ágil y espontánea. Evita tono de locutor, frases ceremoniosas y listas recitadas salvo que sean útiles.",
-    "Usa respuestas habladas relativamente breves por defecto y amplía cuando Aarón lo pida.",
-    "Varía la entonación de forma natural. No leas signos, markdown, URLs ni encabezados como si fueran texto corrido.",
-    "Si Aarón empieza a hablar mientras respondes, deja de hablar y escúchale. La conversación debe poder encadenar turnos sin pulsar de nuevo el botón.",
+    "Conversa como una persona, no como un locutor ni como un asistente telefónico.",
+    "Usa frases naturales, contracciones y pausas breves. Evita enumeraciones rígidas salvo que hagan falta.",
+    "Responde de forma breve por defecto para que la conversación avance rápido.",
+    "Empieza a responder en cuanto tengas suficiente contexto. No introduzcas la respuesta con fórmulas ceremoniosas.",
+    "Si Aarón te interrumpe, deja de hablar inmediatamente y escucha el nuevo turno.",
     "No inventes datos privados, de agenda, correo, tareas, tráfico o memoria. Para esos datos usa consultar_nucleo_zyron.",
-    "Si una petición requiere datos actuales o privados de ZYRON, llama a consultar_nucleo_zyron y después explica el resultado de forma natural, sin decir que has usado una herramienta.",
+    "Si una petición requiere datos actuales o privados de ZYRON, llama a consultar_nucleo_zyron y después contesta de forma natural, sin mencionar la herramienta.",
   ].join(" "),
-  max_output_tokens: 700,
   audio: {
     input: {
       noise_reduction: { type: "near_field" },
-      transcription: {
-        model: "gpt-4o-mini-transcribe",
-        language: "es",
-        prompt: "Conversación en español de España con el asistente personal ZYRON. El usuario se llama Aarón.",
-      },
       turn_detection: {
         type: "server_vad",
         threshold: 0.45,
         prefix_padding_ms: 250,
-        silence_duration_ms: 380,
+        silence_duration_ms: 420,
         create_response: true,
         interrupt_response: true,
       },
     },
     output: {
       voice: "marin",
-      speed: 1.04,
     },
   },
   tools: [
@@ -66,16 +60,44 @@ const realtimeSession = {
   tool_choice: "auto",
 };
 
+function safeUpstreamError(status: number, raw: string) {
+  let code = "";
+  let message = "";
+  try {
+    const data = JSON.parse(raw) as { error?: { code?: string; message?: string; type?: string } };
+    code = data.error?.code || data.error?.type || "";
+    message = data.error?.message || "";
+  } catch {
+    message = "";
+  }
+
+  if (status === 401) return { code: "openai_key_rejected", message: "OpenAI ha rechazado la clave API." };
+  if (status === 402) return { code: "openai_quota_exhausted", message: "La cuenta API no tiene crédito disponible." };
+  if (status === 403) return { code: code || "openai_realtime_forbidden", message: "La cuenta API no tiene acceso a este modelo Realtime." };
+  if (status === 429) return { code: code || "openai_rate_limited", message: "OpenAI está limitando temporalmente las sesiones Realtime." };
+  if (status >= 500) return { code: "openai_realtime_unavailable", message: "OpenAI Realtime no está disponible temporalmente." };
+
+  const cleanMessage = message
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+  return {
+    code: code || `openai_http_${status}`,
+    message: cleanMessage || "OpenAI no ha aceptado la configuración de la sesión Realtime.",
+  };
+}
+
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { sdp?: string };
-    if (!body.sdp?.trim()) {
+    const sdp = await request.text();
+    if (!sdp.trim()) {
       return Response.json({ error: "realtime_sdp_required" }, { status: 400 });
     }
 
     const form = new FormData();
-    form.set("sdp", new Blob([body.sdp], { type: "application/sdp" }), "offer.sdp");
-    form.set("session", new Blob([JSON.stringify(realtimeSession)], { type: "application/json" }), "session.json");
+    form.set("sdp", sdp);
+    form.set("session", JSON.stringify(realtimeSession));
 
     const response = await fetch(OPENAI_REALTIME_URL, {
       method: "POST",
@@ -88,8 +110,12 @@ export async function POST(request: Request) {
 
     const text = await response.text();
     if (!response.ok) {
-      console.error("ZYRON_REALTIME_CALL_ERROR", response.status, text.slice(0, 240));
-      return Response.json({ error: "realtime_call_failed", status: response.status }, { status: 502 });
+      const safe = safeUpstreamError(response.status, text);
+      console.error("ZYRON_REALTIME_CALL_ERROR", response.status, safe.code, safe.message);
+      return Response.json(
+        { error: "realtime_call_failed", upstreamStatus: response.status, code: safe.code, detail: safe.message },
+        { status: 502 },
+      );
     }
 
     return new Response(text, {
@@ -97,10 +123,14 @@ export async function POST(request: Request) {
       headers: {
         "Content-Type": "application/sdp",
         "Cache-Control": "no-store",
+        "X-Zyron-Realtime-Model": "gpt-realtime-2.1-mini",
       },
     });
   } catch (error) {
+    const detail = error instanceof Error && error.message === "openai_api_key_missing"
+      ? "Falta OPENAI_API_KEY en el servidor."
+      : "No se ha podido crear la sesión Realtime.";
     console.error("ZYRON_REALTIME_CALL_ERROR", error instanceof Error ? error.message : "unknown");
-    return Response.json({ error: "realtime_call_failed" }, { status: 500 });
+    return Response.json({ error: "realtime_call_failed", code: "zyron_realtime_server_error", detail }, { status: 500 });
   }
 }
