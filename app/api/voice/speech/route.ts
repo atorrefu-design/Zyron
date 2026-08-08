@@ -21,10 +21,22 @@ function cleanSpeechText(value: unknown) {
     .slice(0, 3500);
 }
 
+function errorStatus(error: unknown) {
+  return error instanceof Error && "status" in error
+    ? Number((error as Error & { status?: number }).status || 0)
+    : 0;
+}
+
+function errorCode(error: unknown) {
+  return error instanceof Error && "code" in error
+    ? String((error as Error & { code?: string }).code || "")
+    : "";
+}
+
 function safeError(error: unknown) {
   if (!(error instanceof Error)) return "voice_error_unknown";
-  const status = "status" in error ? Number((error as Error & { status?: number }).status || 0) : 0;
-  const code = "code" in error ? String((error as Error & { code?: string }).code || "") : "";
+  const status = errorStatus(error);
+  const code = errorCode(error);
   if (error.message === "openai_api_key_missing") return "openai_api_key_missing";
   if (error.message === "openai_api_key_invalid_format") return "openai_api_key_invalid_format";
   if (status === 401 || code === "invalid_api_key") return "openai_api_key_rejected";
@@ -34,20 +46,43 @@ function safeError(error: unknown) {
   return "speech_generation_failed";
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createSpeechWithBackoff(client: OpenAI, input: string) {
+  const delays = [700, 1600, 3200];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await client.audio.speech.create({
+        model: "gpt-4o-mini-tts",
+        voice: "cedar",
+        input,
+        instructions: "Habla en español de España, con una voz natural, cercana y segura. Ritmo conversacional, sin sonar teatral. Pronuncia horas, direcciones y cifras con claridad.",
+        response_format: "wav",
+      });
+    } catch (error) {
+      lastError = error;
+      const status = errorStatus(error);
+      const code = errorCode(error);
+      const retryable = status === 429 && code !== "insufficient_quota";
+      if (!retryable || attempt === delays.length) throw error;
+      await wait(delays[attempt]);
+    }
+  }
+
+  throw lastError;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { text?: string };
     const input = cleanSpeechText(body.text);
     if (!input) return Response.json({ error: "speech_text_required" }, { status: 400 });
 
-    const speech = await getOpenAI().audio.speech.create({
-      model: "gpt-4o-mini-tts",
-      voice: "cedar",
-      input,
-      instructions: "Habla en español de España, con una voz natural, cercana y segura. Ritmo conversacional, sin sonar teatral. Pronuncia horas, direcciones y cifras con claridad.",
-      response_format: "wav",
-    });
-
+    const speech = await createSpeechWithBackoff(getOpenAI(), input);
     const audio = Buffer.from(await speech.arrayBuffer());
     return new Response(audio, {
       status: 200,
@@ -61,7 +96,13 @@ export async function POST(request: Request) {
   } catch (error) {
     const detail = safeError(error);
     console.error("ZYRON_TTS_ERROR", detail);
-    const status = detail.startsWith("openai_api_key_") ? 503 : detail === "openai_quota_exhausted" ? 402 : 500;
+    const status = detail.startsWith("openai_api_key_")
+      ? 503
+      : detail === "openai_quota_exhausted"
+        ? 402
+        : detail === "openai_rate_limited"
+          ? 429
+          : 500;
     return Response.json({ error: "speech_generation_failed", detail }, { status });
   }
 }
