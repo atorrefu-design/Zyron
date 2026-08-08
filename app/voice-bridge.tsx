@@ -9,7 +9,7 @@ function friendlyVoiceError(detail: string, status: number) {
   if (detail === "openai_api_key_invalid_format") return "Voz · OPENAI_API_KEY no contiene una clave de OpenAI";
   if (detail === "openai_api_key_rejected") return "Voz · OpenAI ha rechazado OPENAI_API_KEY";
   if (detail === "openai_quota_exhausted") return "Voz · la cuenta API de OpenAI no tiene cuota/crédito disponible";
-  if (detail === "openai_rate_limited") return "Voz · límite temporal de OpenAI alcanzado";
+  if (detail === "openai_rate_limited") return "Voz · OpenAI mantiene limitado el audio y el respaldo del iPhone no ha arrancado";
   if (detail === "openai_service_unavailable") return "Voz · servicio de OpenAI no disponible ahora";
   return `Voz · TTS ${status}${detail ? ` · ${detail}` : ""}`;
 }
@@ -32,6 +32,23 @@ function chooseDeviceVoice() {
     || spanish[0];
 }
 
+function primeDeviceSpeech() {
+  if (!("speechSynthesis" in window)) return;
+  try {
+    const synth = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(" ");
+    utterance.lang = "es-ES";
+    utterance.volume = 0.01;
+    utterance.rate = 2;
+    utterance.voice = chooseDeviceVoice() || null;
+    synth.cancel();
+    synth.resume();
+    synth.speak(utterance);
+  } catch {
+    // Priming is best effort only.
+  }
+}
+
 function speakWithDevice(text: string, signal?: AbortSignal | null) {
   return new Promise<boolean>((resolve) => {
     if (!text || !("speechSynthesis" in window)) {
@@ -44,26 +61,42 @@ function speakWithDevice(text: string, signal?: AbortSignal | null) {
     utterance.lang = "es-ES";
     utterance.rate = 0.98;
     utterance.pitch = 0.92;
+    utterance.volume = 1;
     utterance.voice = chooseDeviceVoice() || null;
 
     let settled = false;
+    let started = false;
     const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener("abort", onAbort);
-      window.clearTimeout(timer);
+      window.clearTimeout(startTimer);
+      window.clearTimeout(endTimer);
       resolve(ok);
     };
     const onAbort = () => {
       synth.cancel();
       finish(false);
     };
-    const timer = window.setTimeout(() => {
+    const startTimer = window.setTimeout(() => {
+      if (!started) {
+        try {
+          synth.cancel();
+          synth.resume();
+          synth.speak(utterance);
+        } catch {
+          finish(false);
+        }
+      }
+    }, 700);
+    const endTimer = window.setTimeout(() => {
       synth.cancel();
       finish(false);
-    }, Math.max(12_000, Math.min(45_000, text.length * 90)));
+    }, Math.max(10_000, Math.min(40_000, text.length * 80)));
 
-    utterance.onstart = () => undefined;
+    utterance.onstart = () => {
+      started = true;
+    };
     utterance.onend = () => finish(true);
     utterance.onerror = () => finish(false);
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -71,7 +104,13 @@ function speakWithDevice(text: string, signal?: AbortSignal | null) {
     try {
       synth.cancel();
       synth.resume();
-      synth.speak(utterance);
+      window.setTimeout(() => {
+        try {
+          synth.speak(utterance);
+        } catch {
+          finish(false);
+        }
+      }, 120);
     } catch {
       finish(false);
     }
@@ -101,6 +140,10 @@ export default function VoiceBridge() {
       }
     };
 
+    const prime = () => primeDeviceSpeech();
+    window.addEventListener("pointerdown", prime, { passive: true });
+    window.addEventListener("touchstart", prime, { passive: true });
+
     const originalFetch = window.fetch.bind(window);
     window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string"
@@ -125,7 +168,7 @@ export default function VoiceBridge() {
 
           const fallbackText = speechTextFromRequest(init);
           if (fallbackText && reason !== "openai_api_key_missing" && reason !== "openai_api_key_invalid_format") {
-            update("playing", "Voz · usando la voz del iPhone como respaldo", true);
+            update("playing", "Voz · probando respaldo del iPhone…", true);
             const played = await speakWithDevice(fallbackText, init?.signal);
             if (played) {
               update("playing", "Voz · respuesta reproducida con la voz del iPhone", false);
@@ -139,9 +182,10 @@ export default function VoiceBridge() {
 
         const clone = response.clone();
         const bytes = await clone.arrayBuffer().catch(() => new ArrayBuffer(0));
+        const model = response.headers.get("X-Zyron-Voice-Model") || "OpenAI TTS";
         ttsWindowUntil = Date.now() + 15_000;
         const kb = bytes.byteLength ? Math.max(1, Math.round(bytes.byteLength / 1024)) : 0;
-        update("generated", `Voz · audio generado${kb ? ` · ${kb} KB` : ""}`, true);
+        update("generated", `Voz · audio generado · ${model}${kb ? ` · ${kb} KB` : ""}`, true);
         return response;
       } catch (error) {
         const reason = error instanceof Error ? error.message : "fallo de red";
@@ -188,6 +232,8 @@ export default function VoiceBridge() {
     return () => {
       active = false;
       if (hideTimer) window.clearTimeout(hideTimer);
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("touchstart", prime);
       window.fetch = originalFetch;
       window.speechSynthesis?.cancel();
       try {
