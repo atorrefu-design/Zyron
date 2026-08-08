@@ -8,7 +8,7 @@ Objetivo de esta capa: convertir el iPhone en el oído y la boca nativos de ZYRO
 - Distinguir una invocación directa de una simple mención del nombre antes de abrir una sesión remota.
 - Tras una invocación válida, abrir conversación Realtime continua y permitir interrupciones naturales.
 - De 07:00 a 01:00, responder por audio.
-- De 01:00 a 07:00, no hablar: responder por texto/notificación.
+- De 01:00 a 07:00, no hablar: responder por texto/notificación silenciosa.
 - Mantener entrada y salida de audio con el iPhone bloqueado cuando iOS lo permita mediante una sesión nativa `playAndRecord`.
 - El API key permanente de OpenAI nunca debe almacenarse en la app.
 
@@ -39,7 +39,11 @@ La conversación permanece activa sin repetir `ZYRON` y vuelve a escucha pasiva 
 - `NativeAPIClient.swift`: login, política, Realtime nativo y acceso autenticado al núcleo y Google Places.
 - `RealtimeEvent.swift`: decodificación de eventos OpenAI Realtime y creación de eventos de cliente.
 - `RealtimeToolRouter.swift`: ejecuta `consultar_nucleo_zyron` y `buscar_lugares_reales` usando el backend existente y puede recibir la ubicación actual del iPhone.
-- `RealtimeConversationBridge.swift`: conecta eventos de la sesión Realtime con transcripciones, respuestas de texto, herramientas y el coordinador de conversación.
+- `RealtimeConversationBridge.swift`: conecta eventos de la sesión Realtime con transcripciones, respuestas, herramientas y el coordinador de conversación.
+- `QuietResponseNotifier.swift`: entrega respuestas nocturnas como notificación silenciosa visible también con el iPhone bloqueado.
+- `VoiceOutputRouter.swift`: decide el canal de salida y evita audio durante 01:00–07:00.
+- `NativeRealtimeTransport.swift`: contrato que deberá implementar el transporte WebRTC de iPhone.
+- `ZyronVoiceRuntime.swift`: orquesta detector local, activación, sesión de audio, Realtime, interrupciones, cierre y vuelta al modo pasivo.
 
 ## Primera prueba en Xcode
 
@@ -48,16 +52,20 @@ La conversación permanece activa sin repetir `ZYRON` y vuelve a escucha pasiva 
 3. Activar Background Modes > Audio, AirPlay, and Picture in Picture.
 4. Importar los Swift de esta carpeta.
 5. Hacer login una sola vez con la clave privada de ZYRON y comprobar que la sesión queda en Keychain.
-6. Activar `AudioSessionManager.shared.activateForConversation()`.
-7. Añadir un transporte WebRTC nativo, conectar su data channel a `RealtimeConversationBridge` y enviar la oferta SDP mediante `NativeAPIClient.shared.createRealtimeCall(sdpOffer:)`.
-8. Instalar en el iPhone físico.
-9. Prueba decisiva: iniciar conversación, bloquear manualmente la pantalla y comprobar que ZYRON sigue escuchando y respondiendo.
+6. Conceder notificaciones para que las respuestas de 01:00–07:00 puedan aparecer silenciosamente en la pantalla bloqueada.
+7. Añadir el transporte WebRTC nativo que implemente `NativeRealtimeTransport`.
+8. Instalar el detector local y el transporte en `ZyronVoiceRuntime`.
+9. Instalar en el iPhone físico.
+10. Prueba decisiva: iniciar conversación, bloquear manualmente la pantalla y comprobar que ZYRON sigue escuchando y respondiendo.
+11. Simular modo silencioso y confirmar que la respuesta llega por texto/notificación y no genera audio.
 
-OpenAI recomienda WebRTC para clientes móviles. Por eso mantenemos WebRTC como transporte para el iPhone y dejamos WebSocket para integraciones de servidor.
+OpenAI admite Realtime sobre WebRTC, WebSocket o SIP. Para el cliente iPhone mantenemos WebRTC como transporte principal y dejamos el backend como guardián de la clave permanente de OpenAI.
 
 ## Wake word
 
 Para el detector local, la primera opción a validar es Porcupine para iOS porque admite wake words personalizados y procesamiento local. El modelo `ZYRON.ppn` y cualquier AccessKey se incorporarán después de validar la prueba básica de audio bloqueado. Nunca se debe subir una AccessKey al repositorio.
+
+El siguiente punto a validar es la ventana de contexto local alrededor de `ZYRON`. La activación no debe enviar audio ambiente a la nube y debe poder descartar menciones casuales antes de abrir Realtime.
 
 ## Segunda prueba
 
