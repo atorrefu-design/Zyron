@@ -18,10 +18,12 @@ final class VoiceSessionCoordinator: ObservableObject {
 
     private var candidateTask: Task<Void, Never>?
     private var idleTask: Task<Void, Never>?
+    private var softEndTask: Task<Void, Never>?
 
     deinit {
         candidateTask?.cancel()
         idleTask?.cancel()
+        softEndTask?.cancel()
     }
 
     func wakeWordDetected() {
@@ -48,7 +50,11 @@ final class VoiceSessionCoordinator: ObservableObject {
         case .continue:
             registerConversationActivity()
         case .end:
-            endConversation()
+            if result.reason == "soft_end" {
+                scheduleSoftEnd()
+            } else {
+                endConversation()
+            }
         case .ignore:
             if state == .candidate {
                 candidateTask?.cancel()
@@ -61,12 +67,15 @@ final class VoiceSessionCoordinator: ObservableObject {
 
     func registerConversationActivity() {
         guard state == .active else { return }
+        softEndTask?.cancel()
+        softEndTask = nil
         scheduleIdleTimeout()
     }
 
     func conversationInterrupted() {
         guard state == .active else { return }
         idleTask?.cancel()
+        softEndTask?.cancel()
     }
 
     func conversationResumed() {
@@ -77,17 +86,20 @@ final class VoiceSessionCoordinator: ObservableObject {
     func fail(_ message: String) {
         candidateTask?.cancel()
         idleTask?.cancel()
+        softEndTask?.cancel()
         state = .failed(message)
     }
 
     func reset() {
         candidateTask?.cancel()
         idleTask?.cancel()
+        softEndTask?.cancel()
         state = .passive
     }
 
     private func beginActiveSession(command: String?) {
         candidateTask?.cancel()
+        softEndTask?.cancel()
         state = .active
         scheduleIdleTimeout()
         onActivation?(command)
@@ -102,9 +114,21 @@ final class VoiceSessionCoordinator: ObservableObject {
         }
     }
 
+    private func scheduleSoftEnd() {
+        guard state == .active else { return }
+        idleTask?.cancel()
+        softEndTask?.cancel()
+        softEndTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(VoiceEngagementRules.softGoodbyeTimeoutMs))
+            guard !Task.isCancelled, let self, self.state == .active else { return }
+            self.endConversation()
+        }
+    }
+
     private func endConversation() {
         guard state == .active || state == .ending else { return }
         idleTask?.cancel()
+        softEndTask?.cancel()
         state = .ending
         onEnd?()
         state = .passive
