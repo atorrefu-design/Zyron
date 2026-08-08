@@ -96,7 +96,7 @@ function explicitArrivalRequest(message: string) {
   if (!timeMatch) return null;
 
   const hhmm = `${String(Number(timeMatch[1])).padStart(2, "0")}:${timeMatch[2]}`;
-  const beforeTime = clean.slice(0, timeMatch.index ?? clean.length);
+  const beforeTime = clean.slice(0, timeMatch.index ?? clean.length).trim();
   let destination: string | null = null;
 
   const patterns = [
