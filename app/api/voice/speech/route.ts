@@ -3,8 +3,9 @@ import OpenAI from "openai";
 export const runtime = "nodejs";
 
 function getOpenAI() {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error("openai_api_key_missing");
+  if (!apiKey.startsWith("sk-")) throw new Error("openai_api_key_invalid_format");
   return new OpenAI({ apiKey });
 }
 
@@ -21,11 +22,15 @@ function cleanSpeechText(value: unknown) {
 }
 
 function safeError(error: unknown) {
-  if (!(error instanceof Error)) return "unknown_voice_error";
+  if (!(error instanceof Error)) return "voice_error_unknown";
   const status = "status" in error ? Number((error as Error & { status?: number }).status || 0) : 0;
   const code = "code" in error ? String((error as Error & { code?: string }).code || "") : "";
-  const message = error.message.replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]").slice(0, 220);
-  return [status ? `http_${status}` : "", code, message].filter(Boolean).join(": ");
+  if (error.message === "openai_api_key_missing") return "openai_api_key_missing";
+  if (error.message === "openai_api_key_invalid_format") return "openai_api_key_invalid_format";
+  if (status === 401 || code === "invalid_api_key") return "openai_api_key_rejected";
+  if (status === 429) return "openai_rate_limited";
+  if (status >= 500) return "openai_service_unavailable";
+  return "speech_generation_failed";
 }
 
 export async function POST(request: Request) {
@@ -55,6 +60,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const detail = safeError(error);
     console.error("ZYRON_TTS_ERROR", detail);
-    return Response.json({ error: "speech_generation_failed", detail }, { status: 500 });
+    const status = detail.startsWith("openai_api_key_") ? 503 : 500;
+    return Response.json({ error: "speech_generation_failed", detail }, { status });
   }
 }
