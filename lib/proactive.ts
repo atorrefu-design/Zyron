@@ -2,9 +2,10 @@ import { getZyronHealth } from "./health";
 import { listTasks } from "./db";
 import { listCalendarEvents } from "./google/calendar";
 import { compactSender, listGmailMessages, prioritizeGmailMessages } from "./google/gmail";
+import { buildCommuteAlert } from "./commute";
 
 export type ProactiveSeverity = "alta" | "media" | "baja";
-export type ProactiveSource = "system" | "tasks" | "calendar" | "gmail";
+export type ProactiveSource = "system" | "tasks" | "calendar" | "gmail" | "maps";
 
 export type ProactiveAlert = {
   id: string;
@@ -52,10 +53,11 @@ export async function buildProactiveAlerts(now = new Date()): Promise<ProactiveA
     tasks: "ok",
     calendar: "ok",
     gmail: "ok",
+    maps: "ok",
   };
   const alerts: ProactiveAlert[] = [];
 
-  const [healthResult, tasksResult, calendarResult, gmailResult] = await Promise.allSettled([
+  const [healthResult, tasksResult, calendarResult, gmailResult, commuteResult] = await Promise.allSettled([
     getZyronHealth(),
     listTasks(),
     listCalendarEvents({ timeMin: now, timeMax: new Date(now.getTime() + 24 * HOUR), maxResults: 12 }),
@@ -64,6 +66,7 @@ export async function buildProactiveAlerts(now = new Date()): Promise<ProactiveA
       const priorities = await prioritizeGmailMessages(messages);
       return { messages, priorities };
     })(),
+    buildCommuteAlert(now),
   ]);
 
   if (healthResult.status === "fulfilled") {
@@ -154,6 +157,14 @@ export async function buildProactiveAlerts(now = new Date()): Promise<ProactiveA
     }
   } else {
     diagnostics.gmail = "unavailable";
+  }
+
+  if (commuteResult.status === "fulfilled") {
+    if (commuteResult.value) {
+      alerts.push({ ...commuteResult.value, source: "maps" });
+    }
+  } else {
+    diagnostics.maps = "unavailable";
   }
 
   alerts.sort((a, b) => {
