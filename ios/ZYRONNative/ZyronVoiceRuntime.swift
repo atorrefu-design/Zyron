@@ -28,10 +28,13 @@ final class ZyronVoiceRuntime: ObservableObject {
     private var desiredAlwaysOn = false
 
     init(
-        sessionCoordinator: VoiceSessionCoordinator = VoiceSessionCoordinator(),
+        sessionCoordinator: VoiceSessionCoordinator? = nil,
         audioSession: AudioSessionManager = .shared,
-        outputRouter: VoiceOutputRouter = .shared
+        outputRouter: VoiceOutputRouter? = nil
     ) {
+        let sessionCoordinator = sessionCoordinator ?? VoiceSessionCoordinator()
+        let outputRouter = outputRouter ?? VoiceOutputRouter.shared
+
         self.sessionCoordinator = sessionCoordinator
         self.audioSession = audioSession
         self.outputRouter = outputRouter
