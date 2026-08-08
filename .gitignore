@@ -8,6 +8,10 @@ ios/ZYRONNative/Secrets.swift
 ios/ZYRONNative/*.ppn
 ios/ZYRONNative/*.pv
 
+# Reproducible XcodeGen output
+ios/ZYRON.xcodeproj/
+ios/ZYRONApp/Info.plist
+
 # Xcode local state
 DerivedData/
 *.xcuserstate
