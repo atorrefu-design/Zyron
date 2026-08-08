@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ZYRON">
+  <defs>
+    <radialGradient id="orb" cx="36%" cy="30%" r="78%">
+      <stop offset="0" stop-color="#8df8ff"/>
+      <stop offset="0.34" stop-color="#4fc4ff"/>
+      <stop offset="0.68" stop-color="#5868ff"/>
+      <stop offset="1" stop-color="#a742ff"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#071126"/>
+  <circle cx="256" cy="256" r="154" fill="url(#orb)" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="42" fill="#ffffff"/>
+</svg>
