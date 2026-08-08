@@ -56,6 +56,17 @@ export function mapsConfigured() {
   return Boolean(process.env.GOOGLE_MAPS_API_KEY);
 }
 
+function googleErrorMessage(detail: string) {
+  try {
+    const parsed = JSON.parse(detail) as { error?: { status?: string; message?: string } };
+    const status = parsed.error?.status?.trim();
+    const message = parsed.error?.message?.trim();
+    return [status, message].filter(Boolean).join(": ").slice(0, 240);
+  } catch {
+    return detail.replace(/\s+/g, " ").trim().slice(0, 240);
+  }
+}
+
 export async function computeDrivingRoute(options: {
   origin: RoutePoint;
   destination: RoutePoint;
@@ -67,19 +78,17 @@ export async function computeDrivingRoute(options: {
     : null;
   const effectiveDeparture = futureDeparture ?? now;
 
+  // Mantener la petición mínima reduce incompatibilidades. BEST_GUESS ya es el
+  // modelo predeterminado cuando pedimos tráfico, así que no hace falta enviarlo.
   const requestBody: Record<string, unknown> = {
     origin: waypoint(options.origin),
     destination: waypoint(options.destination),
     travelMode: "DRIVE",
     routingPreference: "TRAFFIC_AWARE_OPTIMAL",
-    trafficModel: "BEST_GUESS",
-    languageCode: "es-ES",
-    units: "METRIC",
+    regionCode: "es",
   };
 
-  // Si queremos salir ahora, Google recomienda omitir departureTime: la API usa
-  // automáticamente la hora real de recepción. Enviar new Date() puede llegar unos
-  // milisegundos tarde y Google lo rechaza como una hora en el pasado.
+  // Para salir ahora se omite departureTime; Google usa el instante real de recepción.
   if (futureDeparture) requestBody.departureTime = futureDeparture.toISOString();
 
   const response = await fetch(ROUTES_URL, {
@@ -95,7 +104,8 @@ export async function computeDrivingRoute(options: {
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`maps_routes_${response.status}${detail ? `:${detail.slice(0, 220)}` : ""}`);
+    const diagnostic = googleErrorMessage(detail);
+    throw new Error(`maps_routes_${response.status}${diagnostic ? `:${diagnostic}` : ""}`);
   }
 
   const data = (await response.json()) as GoogleRoutesResponse;
@@ -129,8 +139,6 @@ export async function planDepartureForArrival(options: {
   const target = new Date(options.arrivalTime.getTime() - bufferMinutes * 60_000);
   if (!Number.isFinite(target.getTime())) throw new Error("maps_arrival_invalid");
 
-  // Primera estimación con tráfico actual y dos refinamientos usando tráfico previsto
-  // para la hora de salida calculada.
   let estimate = await computeDrivingRoute({ origin: options.origin, destination: options.destination });
   let departure = new Date(target.getTime() - estimate.durationSeconds * 1000);
 
