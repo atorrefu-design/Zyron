@@ -3,6 +3,7 @@ import { listTasks } from "./db";
 import { listCalendarEvents } from "./google/calendar";
 import { compactSender, listGmailMessages, prioritizeGmailMessages } from "./google/gmail";
 import { buildCommuteAlert } from "./commute";
+import { buildCalendarTravelAlert } from "./calendar-travel";
 
 export type ProactiveSeverity = "alta" | "media" | "baja";
 export type ProactiveSource = "system" | "tasks" | "calendar" | "gmail" | "maps";
@@ -131,6 +132,14 @@ export async function buildProactiveAlerts(now = new Date()): Promise<ProactiveA
         suggestedAction: diff <= 30 * 60 * 1000 ? "Prepararte o salir con margen si requiere desplazamiento." : "Tenerlo presente y comprobar si necesitas preparar algo.",
         eventAt: start.toISOString(),
       });
+    }
+
+    try {
+      const travelAlert = await buildCalendarTravelAlert(calendarResult.value, now);
+      if (travelAlert) alerts.push({ ...travelAlert, source: "maps" });
+    } catch (error) {
+      console.error("ZYRON_CALENDAR_TRAVEL_ALERT_ERROR", error);
+      diagnostics.maps = "unavailable";
     }
   } else {
     diagnostics.calendar = "unavailable";
