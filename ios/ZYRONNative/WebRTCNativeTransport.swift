@@ -38,7 +38,7 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
         disconnectInternal(notify: false)
         deliberateClose = false
 
-        let connection = makePeerConnection()
+        let connection = try makePeerConnection()
         peerConnection = connection
         try attachLocalAudio(to: connection)
         createDataChannel(on: connection)
@@ -72,7 +72,7 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
         disconnectInternal(notify: false)
     }
 
-    private func makePeerConnection() -> RTCPeerConnection {
+    private func makePeerConnection() throws -> RTCPeerConnection {
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
         configuration.continualGatheringPolicy = .gatherContinually
@@ -82,11 +82,14 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
             optionalConstraints: ["DtlsSrtpKeyAgreement": "true"]
         )
 
-        return Self.factory.peerConnection(
+        guard let connection = Self.factory.peerConnection(
             with: configuration,
             constraints: constraints,
             delegate: self
-        )
+        ) else {
+            throw WebRTCNativeTransportError.peerConnectionUnavailable
+        }
+        return connection
     }
 
     private func attachLocalAudio(to connection: RTCPeerConnection) throws {
@@ -153,7 +156,7 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume(returning: ())
+                    continuation.resume()
                 }
             }
         }
@@ -168,7 +171,7 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume(returning: ())
+                    continuation.resume()
                 }
             }
         }
@@ -317,6 +320,7 @@ extension WebRTCNativeTransport: RTCPeerConnectionDelegate {
 enum WebRTCNativeTransportError: LocalizedError {
     case audioTrackUnavailable
     case offerUnavailable
+    case peerConnectionUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -324,6 +328,8 @@ enum WebRTCNativeTransportError: LocalizedError {
             return "No se ha podido conectar el micrófono a WebRTC."
         case .offerUnavailable:
             return "No se ha podido generar la oferta WebRTC para OpenAI Realtime."
+        case .peerConnectionUnavailable:
+            return "No se ha podido crear la conexión WebRTC de ZYRON."
         }
     }
 }
