@@ -50,8 +50,13 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function createSpeechWithBackoff(client: OpenAI, input: string) {
-  const delays = [700, 1600, 3200];
+type SpeechResult = {
+  response: Awaited<ReturnType<OpenAI["audio"]["speech"]["create"]>>;
+  model: "gpt-4o-mini-tts" | "tts-1";
+};
+
+async function createPrimarySpeech(client: OpenAI, input: string) {
+  const delays = [500, 1200];
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= delays.length; attempt += 1) {
@@ -65,9 +70,7 @@ async function createSpeechWithBackoff(client: OpenAI, input: string) {
       });
     } catch (error) {
       lastError = error;
-      const status = errorStatus(error);
-      const code = errorCode(error);
-      const retryable = status === 429 && code !== "insufficient_quota";
+      const retryable = errorStatus(error) === 429 && errorCode(error) !== "insufficient_quota";
       if (!retryable || attempt === delays.length) throw error;
       await wait(delays[attempt]);
     }
@@ -76,13 +79,37 @@ async function createSpeechWithBackoff(client: OpenAI, input: string) {
   throw lastError;
 }
 
+async function createLegacySpeech(client: OpenAI, input: string) {
+  return client.audio.speech.create({
+    model: "tts-1",
+    voice: "onyx",
+    input,
+    response_format: "wav",
+  });
+}
+
+async function createSpeech(client: OpenAI, input: string): Promise<SpeechResult> {
+  try {
+    return { response: await createPrimarySpeech(client, input), model: "gpt-4o-mini-tts" };
+  } catch (primaryError) {
+    const canFallback = errorStatus(primaryError) === 429 && errorCode(primaryError) !== "insufficient_quota";
+    if (!canFallback) throw primaryError;
+
+    try {
+      return { response: await createLegacySpeech(client, input), model: "tts-1" };
+    } catch (fallbackError) {
+      throw fallbackError;
+    }
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { text?: string };
     const input = cleanSpeechText(body.text);
     if (!input) return Response.json({ error: "speech_text_required" }, { status: 400 });
 
-    const speech = await createSpeechWithBackoff(getOpenAI(), input);
+    const { response: speech, model } = await createSpeech(getOpenAI(), input);
     const audio = Buffer.from(await speech.arrayBuffer());
     return new Response(audio, {
       status: 200,
@@ -91,6 +118,7 @@ export async function POST(request: Request) {
         "Cache-Control": "no-store",
         "Content-Length": String(audio.byteLength),
         "X-Zyron-Voice": "tts-ok",
+        "X-Zyron-Voice-Model": model,
       },
     });
   } catch (error) {
