@@ -22,7 +22,19 @@ type ApiResponse = {
   error?: string;
 };
 
+type CommuteProfile = {
+  destination: string;
+  arrivalTime: string;
+  bufferMinutes: number;
+  weekdays: number[];
+  enabled: boolean;
+  originSaved: boolean;
+  updatedAt: string;
+};
+
+type CommuteResponse = { profile?: CommuteProfile | null; error?: string };
 type GeolocationErrorLike = { code?: number };
+type Coordinates = { latitude: number; longitude: number };
 
 const DESTINATION_KEY = "zyron-maps-destination";
 const ARRIVAL_KEY = "zyron-maps-arrival";
@@ -78,6 +90,11 @@ function routeErrorMessage(value: string) {
   return "No he podido calcular la ruta. Revisa la configuración de Maps y vuelve a intentarlo.";
 }
 
+function arrivalClock(value: string) {
+  const match = value.match(/T(\d{2}:\d{2})/);
+  return match?.[1] || "";
+}
+
 export default function MapsPage() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [destination, setDestination] = useState("");
@@ -87,6 +104,10 @@ export default function MapsPage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("Usaré la ubicación actual del iPhone solo cuando calcules una ruta.");
   const [result, setResult] = useState<RouteResult | null>(null);
+  const [lastOrigin, setLastOrigin] = useState<Coordinates | null>(null);
+  const [commute, setCommute] = useState<CommuteProfile | null>(null);
+  const [commuteBusy, setCommuteBusy] = useState(false);
+  const [commuteMessage, setCommuteMessage] = useState("");
 
   useEffect(() => {
     setDestination(localStorage.getItem(DESTINATION_KEY) || "");
@@ -97,6 +118,10 @@ export default function MapsPage() {
       .then((response) => response.json())
       .then((data: ApiResponse) => setConfigured(Boolean(data.configured)))
       .catch(() => setConfigured(false));
+    void fetch("/api/maps/commute", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: CommuteResponse) => setCommute(data.profile || null))
+      .catch(() => setCommute(null));
   }, []);
 
   const mapsUrl = useMemo(() => destination
@@ -132,14 +157,17 @@ export default function MapsPage() {
 
     setLoading(true);
     setResult(null);
+    setLastOrigin(null);
+    setCommuteMessage("");
     setStatus("Localizando el iPhone y consultando tráfico…");
     try {
       const position = await currentPosition();
+      const origin = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
       const body = {
-        origin: {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        },
+        origin,
         destination: cleanDestination,
         arrivalTime: useArrival && arrival ? new Date(arrival).toISOString() : null,
         bufferMinutes,
@@ -157,8 +185,9 @@ export default function MapsPage() {
       localStorage.setItem(ARRIVAL_KEY, arrival);
       localStorage.setItem(BUFFER_KEY, String(bufferMinutes));
       setConfigured(true);
+      setLastOrigin(origin);
       setResult(data.route);
-      setStatus("Ruta calculada con tráfico de Google. La ubicación exacta no se guarda en ZYRON.");
+      setStatus("Ruta calculada con tráfico de Google. La ubicación exacta no se guarda salvo que actives los avisos de ruta habitual.");
     } catch (error) {
       const locationError = error as GeolocationErrorLike;
       const message = typeof locationError?.code === "number"
@@ -169,6 +198,55 @@ export default function MapsPage() {
       setStatus(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveWeekdayWatch() {
+    if (!lastOrigin || !result || !useArrival) {
+      setCommuteMessage("Calcula primero una ruta con hora de llegada para poder guardar el aviso.");
+      return;
+    }
+    const time = arrivalClock(arrival);
+    if (!time) {
+      setCommuteMessage("Elige una hora de llegada válida.");
+      return;
+    }
+    setCommuteBusy(true);
+    try {
+      const response = await fetch("/api/maps/commute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: lastOrigin,
+          destination: destination.trim(),
+          arrivalTime: time,
+          bufferMinutes,
+          weekdays: [1, 2, 3, 4, 5],
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as CommuteResponse;
+      if (!response.ok || !data.profile) throw new Error(data.error || "commute_save_failed");
+      setCommute(data.profile);
+      setCommuteMessage("Avisos activados de lunes a viernes. ZYRON revisará tráfico desde este punto guardado y te avisará cuando se acerque la hora de salir.");
+    } catch {
+      setCommuteMessage("No he podido guardar esta ruta habitual. Vuelve a intentarlo.");
+    } finally {
+      setCommuteBusy(false);
+    }
+  }
+
+  async function disableWeekdayWatch() {
+    setCommuteBusy(true);
+    try {
+      const response = await fetch("/api/maps/commute", { method: "DELETE" });
+      const data = (await response.json().catch(() => ({}))) as CommuteResponse;
+      if (!response.ok) throw new Error(data.error || "commute_disable_failed");
+      setCommute(data.profile || null);
+      setCommuteMessage("Avisos de esta ruta desactivados.");
+    } catch {
+      setCommuteMessage("No he podido desactivar los avisos de ruta.");
+    } finally {
+      setCommuteBusy(false);
     }
   }
 
@@ -236,6 +314,27 @@ export default function MapsPage() {
                   ? "Para llegar con el margen elegido, conviene salir ya."
                   : `Quedan aproximadamente ${formatDuration(result.leaveInSeconds)} para la salida recomendada.`}
               </div>
+            )}
+
+            {useArrival && lastOrigin && (
+              <section className="dashboardBlock">
+                <div className="blockHeader"><h2>Avisos de ruta habitual</h2><span>{commute?.enabled ? "ACTIVOS" : "OPCIONAL"}</span></div>
+                <div className="mutedBox">
+                  Si lo activas, ZYRON guardará este punto de salida y el destino en tu base privada para revisar el tráfico cada 15 minutos de lunes a viernes. No sabrá que te has movido después salvo que vuelvas a guardar la ruta desde otra ubicación.
+                </div>
+                <div className="headerActions">
+                  <button className="ghostButton" type="button" disabled={commuteBusy} onClick={() => void saveWeekdayWatch()}>
+                    {commuteBusy ? "Guardando…" : commute?.enabled ? "Actualizar ruta y avisos" : "Activar avisos L-V"}
+                  </button>
+                  {commute?.enabled && (
+                    <button className="ghostButton" type="button" disabled={commuteBusy} onClick={() => void disableWeekdayWatch()}>Desactivar</button>
+                  )}
+                </div>
+                {commute?.enabled && (
+                  <div className="compactRow"><span>🚗</span><div><strong>{commute.destination}</strong><small>L-V · llegada {commute.arrivalTime} · margen {commute.bufferMinutes} min</small></div></div>
+                )}
+                {commuteMessage && <div className="mutedBox">{commuteMessage}</div>}
+              </section>
             )}
           </section>
         )}
