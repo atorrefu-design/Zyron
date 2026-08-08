@@ -22,6 +22,9 @@ const realtimeSession = {
     "Si Aarón te interrumpe, deja de hablar inmediatamente y escucha el nuevo turno.",
     "No inventes datos privados, de agenda, correo, tareas, tráfico o memoria. Para esos datos usa consultar_nucleo_zyron.",
     "Si una petición requiere datos actuales o privados de ZYRON, llama a consultar_nucleo_zyron y después contesta de forma natural, sin mencionar la herramienta.",
+    "Cuando Aarón pida tiendas, restaurantes, negocios, servicios o lugares físicos reales, usa buscar_lugares_reales. Nunca inventes una dirección ni afirmes que un negocio existe sin consultar esa herramienta.",
+    "Si Aarón indica una ciudad, barrio o zona, basta con esa ubicación para buscar lugares reales; no le exijas una calle concreta. Si dice cerca de mí, usa la búsqueda de lugares y deja que ZYRON aplique la ubicación actual del iPhone.",
+    "Al hablar de resultados de lugares, di nombre y dirección de forma natural. No leas URLs salvo que Aarón las pida.",
   ].join(" "),
   audio: {
     input: {
@@ -43,13 +46,29 @@ const realtimeSession = {
     {
       type: "function",
       name: "consultar_nucleo_zyron",
-      description: "Consulta el núcleo privado de ZYRON cuando Aarón pide datos personales o actuales: agenda, Gmail, tareas, briefing, tráfico, rutas, hora de salida, objetivos, memoria o estado del sistema. No usar para charla general.",
+      description: "Consulta el núcleo privado de ZYRON cuando Aarón pide datos personales o actuales: agenda, Gmail, tareas, briefing, tráfico, rutas, hora de salida, objetivos, memoria o estado del sistema. No usar para charla general ni para buscar negocios físicos.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description: "La petición completa de Aarón, conservando fechas, horas, nombres y contexto relevante.",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: "function",
+      name: "buscar_lugares_reales",
+      description: "Busca negocios y lugares físicos reales en Google Places, con nombre y dirección verificados. Usar para tiendas, restaurantes, talleres, supermercados, servicios, locales y cualquier petición de lugares en una ciudad, barrio o cerca de la ubicación actual.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Qué lugar busca Aarón y la zona indicada, por ejemplo: tiendas de zapatillas en Badalona, farmacia cerca de mí o restaurantes japoneses en Sabadell.",
           },
         },
         required: ["query"],
