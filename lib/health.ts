@@ -32,6 +32,26 @@ async function timedCheck(check: () => Promise<void>, timeoutMs = 4500): Promise
   }
 }
 
+async function checkOpenAI(): Promise<CheckResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { configured: false, reachable: null, latencyMs: null };
+
+  const result = await timedCheck(async () => {
+    const response = await fetch("https://api.openai.com/v1/models", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      if (response.status === 401) throw new Error("openai_key_rejected");
+      if (response.status === 403) throw new Error("openai_key_forbidden");
+      throw new Error(`openai_http_${response.status}`);
+    }
+  }, 8000);
+
+  return { configured: true, ...result };
+}
+
 async function checkDatabase(): Promise<CheckResult> {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) return { configured: false, reachable: null, latencyMs: null };
@@ -63,9 +83,9 @@ async function checkMem0(): Promise<CheckResult> {
 }
 
 export async function getZyronHealth(): Promise<ZyronHealth> {
-  const [database, mem0] = await Promise.all([checkDatabase(), checkMem0()]);
+  const [openai, database, mem0] = await Promise.all([checkOpenAI(), checkDatabase(), checkMem0()]);
   const checks = {
-    openai: { configured: Boolean(process.env.OPENAI_API_KEY), reachable: null, latencyMs: null },
+    openai,
     mem0,
     database,
     maps: { configured: Boolean(process.env.GOOGLE_MAPS_API_KEY), reachable: null, latencyMs: null },
@@ -75,5 +95,5 @@ export async function getZyronHealth(): Promise<ZyronHealth> {
 
   const required = Object.values(checks);
   const ok = required.every((check) => check.configured && check.reachable !== false);
-  return { ok, service: "zyron-core", version: "0.5.1", checks, time: new Date().toISOString() };
+  return { ok, service: "zyron-core", version: "0.5.2", checks, time: new Date().toISOString() };
 }
