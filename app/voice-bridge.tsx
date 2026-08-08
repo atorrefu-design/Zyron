@@ -4,6 +4,15 @@ import { useEffect, useState } from "react";
 
 type VoiceState = "idle" | "request" | "generated" | "decoded" | "playing" | "error";
 
+function friendlyVoiceError(detail: string, status: number) {
+  if (detail === "openai_api_key_missing") return "Voz · falta OPENAI_API_KEY en Vercel";
+  if (detail === "openai_api_key_invalid_format") return "Voz · OPENAI_API_KEY no contiene una clave de OpenAI";
+  if (detail === "openai_api_key_rejected") return "Voz · OpenAI ha rechazado OPENAI_API_KEY";
+  if (detail === "openai_rate_limited") return "Voz · límite temporal de OpenAI alcanzado";
+  if (detail === "openai_service_unavailable") return "Voz · servicio de OpenAI no disponible ahora";
+  return `Voz · TTS ${status}${detail ? ` · ${detail}` : ""}`;
+}
+
 export default function VoiceBridge() {
   const [state, setState] = useState<VoiceState>("idle");
   const [detail, setDetail] = useState("");
@@ -46,9 +55,9 @@ export default function VoiceBridge() {
             const payload = await response.clone().json() as { detail?: string; error?: string };
             reason = payload.detail || payload.error || "";
           } catch {
-            reason = await response.clone().text().catch(() => "");
+            reason = "";
           }
-          update("error", `Voz · TTS ${response.status}${reason ? ` · ${reason.slice(0, 120)}` : ""}`, true);
+          update("error", friendlyVoiceError(reason, response.status), true);
           return response;
         }
 
