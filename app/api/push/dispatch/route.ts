@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { NextResponse } from "next/server";
-import { buildProactiveAlerts } from "../../../../lib/proactive";
+import { buildProactiveAlerts, type ProactiveAlert, type ProactiveSource } from "../../../../lib/proactive";
 import { pushPolicySummary, selectPushCandidates } from "../../../../lib/push-policy";
 import {
   claimPushDispatchWindow,
@@ -13,6 +13,21 @@ export const runtime = "nodejs";
 
 const GITHUB_ISSUER = "https://token.actions.githubusercontent.com";
 const GITHUB_JWKS = createRemoteJWKSet(new URL(`${GITHUB_ISSUER}/.well-known/jwks`));
+
+const SOURCE_URL: Record<ProactiveSource, string> = {
+  system: "/dashboard",
+  tasks: "/tasks",
+  calendar: "/calendar",
+  gmail: "/",
+  maps: "/maps",
+};
+
+function notificationTarget(alerts: ProactiveAlert[]) {
+  if (!alerts.length) return "/";
+  const sources = new Set(alerts.map((alert) => alert.source));
+  if (sources.size === 1) return SOURCE_URL[alerts[0].source] || "/";
+  return "/";
+}
 
 async function schedulerAuthorized(request: Request) {
   const authorization = request.headers.get("authorization") || "";
@@ -46,7 +61,7 @@ export async function GET(request: Request) {
 
     const result = await buildProactiveAlerts(now);
     const candidates = selectPushCandidates(result.alerts, now, 3);
-    const unsent = [];
+    const unsent: ProactiveAlert[] = [];
     for (const alert of candidates) {
       if (!(await wasAlertSent(alert.id))) unsent.push(alert);
     }
@@ -63,7 +78,7 @@ export async function GET(request: Request) {
     const push = await sendPushNotification({
       title: unsent.length === 1 ? "ZYRON te avisa" : `ZYRON · ${unsent.length} asuntos importantes`,
       body,
-      url: "/",
+      url: notificationTarget(unsent),
       tag: `zyron-proactive-${unsent.map((alert) => alert.id).join("-").slice(0, 120)}`,
     });
 
@@ -75,6 +90,7 @@ export async function GET(request: Request) {
       pushed: push.sent,
       failed: push.failed,
       disabled: push.disabled,
+      target: notificationTarget(unsent),
       policy,
     });
   } catch (error) {
