@@ -36,12 +36,7 @@ final class NativeActionDispatcher {
     func execute(_ envelope: NativeActionEnvelope) async -> Result {
         guard let handler = handlers[envelope.action] else {
             WakeWordDiagnostics.shared.record("native_action_unhandled", detail: envelope.action)
-            return Result(
-                handled: false,
-                succeeded: false,
-                reply: nil,
-                value: nil
-            )
+            return Result(handled: false, succeeded: false, reply: nil, value: nil)
         }
 
         let result = await handler(envelope)
@@ -54,44 +49,94 @@ final class NativeActionDispatcher {
 
     private func registerBuiltIns() {
         register("recording.start") { _ in
-            do {
-                let url = try await NativePermissionGate.shared.run(requiring: .microphone) {
-                    try await NativeRecordingController.shared.start()
-                }
-                return Result(handled: true, succeeded: true, reply: "Grabando.", value: url.path)
-            } catch {
-                return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
-            }
+            await self.startRecording()
         }
 
         register("recording.stop") { _ in
+            self.stopRecording()
+        }
+
+        // Cloud capability currently emits one generic recording action. Resolve
+        // start/stop locally from the original natural-language input.
+        register("recording_control") { envelope in
+            let input = self.normalize(envelope.input ?? "")
+            if ["deja de grabar", "para de grabar", "deten la grabacion", "termina de grabar", "finaliza la grabacion"]
+                .contains(where: input.contains) {
+                return self.stopRecording()
+            }
+            return await self.startRecording()
+        }
+
+        register("permissions.bootstrap") { _ in
+            await self.bootstrapPermissions()
+        }
+
+        register("get_current_location") { _ in
             do {
-                let url = try NativeRecordingController.shared.stop()
-                return Result(
-                    handled: true,
-                    succeeded: true,
-                    reply: url == nil ? "No estaba grabando." : "Grabación guardada.",
-                    value: url?.path
-                )
+                let location = try await NativeDeviceActions.shared.currentLocation()
+                let value = "{\"latitude\":\(location.coordinate.latitude),\"longitude\":\(location.coordinate.longitude),\"accuracy\":\(location.horizontalAccuracy)}"
+                return Result(handled: true, succeeded: true, reply: nil, value: value)
             } catch {
                 return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
             }
         }
 
-        register("permissions.bootstrap") { _ in
-            let snapshot = await PermissionBootstrapper.shared.requestInitialPermissions()
-            if snapshot.denied.isEmpty && snapshot.notDetermined.isEmpty {
-                return Result(handled: true, succeeded: true, reply: "Permisos configurados.", value: nil)
-            }
-            if !snapshot.denied.isEmpty {
-                return Result(
-                    handled: true,
-                    succeeded: false,
-                    reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.",
-                    value: nil
-                )
-            }
-            return Result(handled: true, succeeded: true, reply: "He iniciado la configuración de permisos.", value: nil)
+        register("open_whatsapp_target") { _ in
+            let opened = await NativeDeviceActions.shared.openWhatsApp()
+            return Result(
+                handled: true,
+                succeeded: opened,
+                reply: opened ? "WhatsApp abierto." : NativeDeviceActionError.whatsappUnavailable.localizedDescription,
+                value: nil
+            )
         }
+    }
+
+    private func startRecording() async -> Result {
+        do {
+            let url = try await NativePermissionGate.shared.run(requiring: .microphone) {
+                try await NativeRecordingController.shared.start()
+            }
+            return Result(handled: true, succeeded: true, reply: "Grabando.", value: url.path)
+        } catch {
+            return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
+        }
+    }
+
+    private func stopRecording() -> Result {
+        do {
+            let url = try NativeRecordingController.shared.stop()
+            return Result(
+                handled: true,
+                succeeded: true,
+                reply: url == nil ? "No estaba grabando." : "Grabación guardada.",
+                value: url?.path
+            )
+        } catch {
+            return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
+        }
+    }
+
+    private func bootstrapPermissions() async -> Result {
+        let snapshot = await PermissionBootstrapper.shared.requestInitialPermissions()
+        if snapshot.denied.isEmpty && snapshot.notDetermined.isEmpty {
+            return Result(handled: true, succeeded: true, reply: "Permisos configurados.", value: nil)
+        }
+        if !snapshot.denied.isEmpty {
+            return Result(
+                handled: true,
+                succeeded: false,
+                reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.",
+                value: nil
+            )
+        }
+        return Result(handled: true, succeeded: true, reply: "He iniciado la configuración de permisos.", value: nil)
+    }
+
+    private func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es_ES"))
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
