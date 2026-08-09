@@ -5,6 +5,10 @@ struct ZYRONApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var controller = ZyronAppController()
 
+    init() {
+        NativeNotificationBridge.shared.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -12,6 +16,9 @@ struct ZYRONApp: App {
                 .task {
                     await controller.restore()
                     await handlePendingIntent()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .zyronStartVoiceRequested)) { _ in
+                    Task { await controller.startManualConversation() }
                 }
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active else { return }
