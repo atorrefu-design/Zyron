@@ -11,17 +11,21 @@ export type ZyronActionResponse = {
   message?: string;
 };
 
+export type ZyronDeviceLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  capturedAt: string;
+};
+
 export type ZyronActionRequest = {
   text?: string;
   messages?: Array<{ role: "user" | "assistant"; content: string }>;
+  deviceLocation?: ZyronDeviceLocation | null;
 };
 
 /**
  * Single action-first entry point for ZYRON clients.
- *
- * The caller should treat `native_execute` as an instruction to execute the
- * returned native action immediately through the iPhone companion. It must not
- * present the internal plan to the user as the normal response.
  */
 export async function executeZyronRequest(
   request: ZyronActionRequest,
@@ -41,6 +45,24 @@ export async function executeZyronRequest(
   }
 
   return data;
+}
+
+/**
+ * Browser/native bridge contract. The native companion can intercept this
+ * cancelable event and call preventDefault() once it has accepted the command.
+ * A normal PWA has no privileged executor, so it must not pretend success.
+ */
+export function dispatchNativeAction(data: ZyronActionResponse): boolean {
+  if (typeof window === "undefined" || data.mode !== "native_execute" || !data.action) return false;
+  const event = new CustomEvent("zyron:native-action", {
+    cancelable: true,
+    detail: {
+      action: data.action,
+      capabilityId: data.capabilityId,
+      input: data.input,
+    },
+  });
+  return !window.dispatchEvent(event);
 }
 
 export function userFacingTextForBlockedAction(data: ZyronActionResponse): string | null {
