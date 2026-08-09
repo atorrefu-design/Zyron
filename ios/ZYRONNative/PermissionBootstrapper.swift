@@ -63,15 +63,13 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         }
 
         switch CNContactStore.authorizationStatus(for: .contacts) {
-        case .authorized: granted.insert(.contacts)
+        case .authorized, .limited: granted.insert(.contacts)
         case .denied, .restricted: denied.insert(.contacts)
         case .notDetermined: notDetermined.insert(.contacts)
-        case .limited: granted.insert(.contacts)
         @unknown default: notDetermined.insert(.contacts)
         }
 
-        let eventStatus = EKEventStore.authorizationStatus(for: .event)
-        switch eventStatus {
+        switch EKEventStore.authorizationStatus(for: .event) {
         case .fullAccess, .authorized, .writeOnly: granted.insert(.calendar)
         case .denied, .restricted: denied.insert(.calendar)
         case .notDetermined: notDetermined.insert(.calendar)
@@ -88,29 +86,28 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         return Snapshot(granted: granted, denied: denied, notDetermined: notDetermined)
     }
 
-    /// Requests every useful permission that iOS allows an app to request proactively.
-    /// iOS still owns the system dialogs; ZYRON cannot approve them on the user's behalf.
-    /// Already decided permissions are skipped, so this is safe to call again later.
+    /// Requests one permission only if iOS has not already made a decision.
+    /// The returned snapshot lets the caller resume the original action immediately
+    /// after the user accepts the system dialog, without asking them to repeat it.
     @discardableResult
-    func requestInitialPermissions() async -> Snapshot {
-        if AVAudioSession.sharedInstance().recordPermission == .undetermined {
+    func request(_ permission: PermissionKind) async -> Snapshot {
+        let before = await snapshot()
+        guard before.notDetermined.contains(permission) else { return before }
+
+        switch permission {
+        case .microphone:
             _ = await NativeRecordingController.shared.requestPermission()
-        }
 
-        let notificationSettings = await UNUserNotificationCenter.current().notificationSettings()
-        if notificationSettings.authorizationStatus == .notDetermined {
+        case .notifications:
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
-        }
 
-        if locationManager.authorizationStatus == .notDetermined {
+        case .location:
             _ = await requestLocationWhenInUse()
-        }
 
-        if CNContactStore.authorizationStatus(for: .contacts) == .notDetermined {
+        case .contacts:
             _ = try? await CNContactStore().requestAccess(for: .contacts)
-        }
 
-        if EKEventStore.authorizationStatus(for: .event) == .notDetermined {
+        case .calendar:
             let store = EKEventStore()
             if #available(iOS 17.0, *) {
                 _ = try? await store.requestFullAccessToEvents()
@@ -122,10 +119,25 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
                     }
                 }
             }
+
+        case .photos:
+            _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         }
 
-        if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
-            _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        let after = await snapshot()
+        WakeWordDiagnostics.shared.record(
+            "permission_request_completed",
+            detail: "permission=\(permission.rawValue); granted=\(after.granted.contains(permission))"
+        )
+        return after
+    }
+
+    /// Requests every useful permission that iOS allows an app to request proactively.
+    /// Already decided permissions are skipped, so this is safe to call again later.
+    @discardableResult
+    func requestInitialPermissions() async -> Snapshot {
+        for permission in PermissionKind.allCases {
+            _ = await request(permission)
         }
 
         let result = await snapshot()
