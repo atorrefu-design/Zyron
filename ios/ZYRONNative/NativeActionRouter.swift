@@ -15,38 +15,40 @@ final class NativeActionRouter {
         let command = normalize(rawCommand)
 
         if isPermissionSetupCommand(command) {
-            let snapshot = await PermissionBootstrapper.shared.requestInitialPermissions()
-            if snapshot.notDetermined.isEmpty && snapshot.denied.isEmpty {
-                return Result(handled: true, reply: "Permisos configurados.")
-            }
-            if !snapshot.denied.isEmpty {
-                return Result(handled: true, reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.")
-            }
-            return Result(handled: true, reply: "He iniciado la configuración de permisos.")
+            return await dispatch(action: "permissions.bootstrap", input: rawCommand)
         }
 
         if isStopRecordingCommand(command) {
-            do {
-                let url = try NativeRecordingController.shared.stop()
-                return Result(
-                    handled: true,
-                    reply: url == nil ? "No estaba grabando." : "Grabación guardada."
-                )
-            } catch {
-                return Result(handled: true, reply: error.localizedDescription)
-            }
+            return await dispatch(action: "recording.stop", input: rawCommand)
         }
 
         if isStartRecordingCommand(command) {
-            do {
-                _ = try await NativeRecordingController.shared.start()
-                return Result(handled: true, reply: "Grabando.")
-            } catch {
-                return Result(handled: true, reply: error.localizedDescription)
-            }
+            return await dispatch(action: "recording.start", input: rawCommand)
         }
 
         return Result(handled: false, reply: nil)
+    }
+
+    /// Executes a native directive emitted by the cloud action router.
+    /// This is the generic bridge used by the web view / companion integration.
+    func executeNativeDirective(
+        action: String,
+        input: String? = nil,
+        capabilityId: String? = nil,
+        payload: [String: String]? = nil
+    ) async -> Result {
+        let envelope = NativeActionEnvelope(
+            action: action,
+            input: input,
+            capabilityId: capabilityId,
+            payload: payload
+        )
+        let result = await NativeActionDispatcher.shared.execute(envelope)
+        return Result(handled: result.handled, reply: result.reply)
+    }
+
+    private func dispatch(action: String, input: String) async -> Result {
+        await executeNativeDirective(action: action, input: input)
     }
 
     private func isPermissionSetupCommand(_ command: String) -> Bool {
