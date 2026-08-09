@@ -20,6 +20,7 @@ struct ContentView: View {
                 VStack(spacing: 18) {
                     header
                     statusCard
+                    cloudCompanionCard
 
                     if controller.isAuthenticated {
                         conversationCard
@@ -38,6 +39,9 @@ struct ContentView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .preferredColorScheme(.dark)
+        .task {
+            await controller.restore()
+        }
     }
 
     private var background: some View {
@@ -72,8 +76,8 @@ struct ContentView: View {
                     )
                     .frame(width: 88, height: 88)
 
-                Image(systemName: controller.isConversationRunning ? "waveform" : "circle.hexagongrid.fill")
-                    .font(.system(size: 36, weight: .medium))
+                Image(systemName: controller.isConversationRunning ? "waveform" : "iphone.gen3.radiowaves.left.and.right")
+                    .font(.system(size: 34, weight: .medium))
                     .foregroundStyle(.white)
             }
             .accessibilityHidden(true)
@@ -82,9 +86,9 @@ struct ContentView: View {
                 Text("ZYRON")
                     .font(.system(size: 31, weight: .bold, design: .rounded))
                     .tracking(5)
-                Text("NATIVE · 0.5.0")
+                Text("iPHONE COMPANION · 0.6.0")
                     .font(.caption2.weight(.semibold))
-                    .tracking(2)
+                    .tracking(1.5)
                     .foregroundStyle(.cyan.opacity(0.85))
             }
         }
@@ -112,10 +116,49 @@ struct ContentView: View {
         .accessibilityElement(children: .combine)
     }
 
+    private var cloudCompanionCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                cardTitle("Núcleo cloud", icon: "cloud.fill")
+                Spacer()
+                Text(cloudLabel)
+                    .font(.caption2.bold())
+                    .foregroundStyle(cloudColor)
+            }
+
+            Text("Esta app no sustituye a ZYRON Web. Es el puente nativo del iPhone para voz, permisos, audio, notificaciones y futuras integraciones con iOS.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Link(destination: controller.webAppURL) {
+                    Label("Abrir ZYRON", systemImage: "safari.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ZyronSecondaryButtonStyle())
+
+                Link(destination: controller.diagnosticsURL) {
+                    Label("Diagnóstico", systemImage: "stethoscope")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ZyronSecondaryButtonStyle())
+            }
+
+            Button {
+                Task { await controller.refreshCloudStatus() }
+            } label: {
+                Label("Comprobar conexión", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(ZyronSecondaryButtonStyle())
+        }
+        .zyronCard()
+    }
+
     private var loginCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             cardTitle("Conectar este iPhone", icon: "lock.shield.fill")
-            Text("La clave se envía una sola vez al backend privado. La app guarda únicamente la sesión resultante en Keychain.")
+            Text("La clave se envía una sola vez al backend privado. El companion guarda únicamente la sesión resultante en Keychain.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -133,7 +176,7 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                Label("Iniciar sesión", systemImage: "arrow.right.circle.fill")
+                Label("Conectar companion", systemImage: "arrow.right.circle.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(ZyronPrimaryButtonStyle())
@@ -145,14 +188,14 @@ struct ContentView: View {
     private var conversationCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                cardTitle("Prueba de voz nativa", icon: "mic.fill")
+                cardTitle("Voz nativa", icon: "mic.fill")
                 Spacer()
                 Text(controller.responseMode == .audio ? "AUDIO" : "TEXTO")
                     .font(.caption2.bold())
                     .foregroundStyle(controller.responseMode == .audio ? Color.cyan : Color.orange)
             }
 
-            Text("Este botón prueba WebRTC, micrófono y altavoz sin depender todavía de la palabra de activación.")
+            Text("Prueba WebRTC, micrófono y altavoz desde la capa nativa mientras el razonamiento sigue viviendo en el núcleo cloud.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -240,10 +283,10 @@ struct ContentView: View {
 
     private var acceptanceCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            cardTitle("Gate prioritario", icon: "iphone.gen3.radiowaves.left.and.right")
-            acceptanceStep(number: "1", text: "Pulsa «Hablar con ZYRON» y espera a que conecte.")
-            acceptanceStep(number: "2", text: "Bloquea el iPhone mientras ZYRON habla.")
-            acceptanceStep(number: "3", text: "Habla de nuevo sin desbloquearlo durante al menos 2 minutos.")
+            cardTitle("Prueba prioritaria", icon: "iphone.gen3.radiowaves.left.and.right")
+            acceptanceStep(number: "1", text: "Comprueba que el núcleo cloud aparece activo.")
+            acceptanceStep(number: "2", text: "Pulsa «Hablar con ZYRON» y espera a que conecte.")
+            acceptanceStep(number: "3", text: "Bloquea el iPhone mientras ZYRON habla y comprueba si la conversación continúa.")
         }
         .zyronCard()
     }
@@ -263,7 +306,7 @@ struct ContentView: View {
     }
 
     private var logoutButton: some View {
-        Button("Cerrar sesión y borrar claves locales") {
+        Button("Desconectar companion y borrar claves locales") {
             controller.logout()
             ownerKey = ""
             picovoiceAccessKey = ""
@@ -274,9 +317,26 @@ struct ContentView: View {
         .padding(.top, 4)
     }
 
+    private var cloudLabel: String {
+        switch controller.cloudCoreOnline {
+        case true: return "ACTIVO"
+        case false: return "SIN RESPUESTA"
+        case nil: return "COMPROBANDO"
+        }
+    }
+
+    private var cloudColor: Color {
+        switch controller.cloudCoreOnline {
+        case true: return .green
+        case false: return .orange
+        case nil: return .secondary
+        }
+    }
+
     private var statusColor: Color {
         if controller.isConversationRunning { return .cyan }
         if controller.isListeningForWakeWord { return .green }
+        if controller.cloudCoreOnline == false { return .orange }
         if controller.isAuthenticated { return .blue }
         return .orange
     }
@@ -354,7 +414,7 @@ private struct ZyronSecondaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.cyan)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
             .background(Color.cyan.opacity(configuration.isPressed ? 0.08 : 0.13))
