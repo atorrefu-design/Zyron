@@ -17,6 +17,12 @@ private enum ZyronIntentKeys {
     }
 }
 
+private func requireZyronSession() -> IntentDialog? {
+    NativeAPIClient.shared.hasOwnerSession
+        ? nil
+        : IntentDialog("Primero abre la app companion de ZYRON e inicia sesión una vez en este iPhone.")
+}
+
 struct AskZyronIntent: AppIntent {
     static var title: LocalizedStringResource = "Preguntar a ZYRON"
     static var description = IntentDescription("Envía una pregunta directamente al núcleo privado de ZYRON y devuelve la respuesta sin abrir la interfaz.")
@@ -33,16 +39,63 @@ struct AskZyronIntent: AppIntent {
         guard !clean.isEmpty else {
             return .result(dialog: "Dime qué necesitas y se lo paso a ZYRON.")
         }
-
-        guard NativeAPIClient.shared.hasOwnerSession else {
-            return .result(dialog: "Primero abre la app companion de ZYRON e inicia sesión una vez en este iPhone.")
-        }
+        if let dialog = requireZyronSession() { return .result(dialog: dialog) }
 
         do {
             let reply = try await NativeAPIClient.shared.queryCore(clean)
             return .result(dialog: IntentDialog(stringLiteral: reply))
         } catch {
             return .result(dialog: IntentDialog(stringLiteral: "No he podido consultar el núcleo de ZYRON: \(error.localizedDescription)"))
+        }
+    }
+}
+
+struct CreateZyronTaskIntent: AppIntent {
+    static var title: LocalizedStringResource = "Crear tarea en ZYRON"
+    static var description = IntentDescription("Crea una tarea directamente en el sistema privado de ZYRON.")
+
+    @Parameter(
+        title: "Tarea",
+        requestValueDialog: IntentDialog("¿Qué tarea quieres que guarde ZYRON?")
+    )
+    var title: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return .result(dialog: "Dime qué tarea quieres guardar.") }
+        if let dialog = requireZyronSession() { return .result(dialog: dialog) }
+
+        do {
+            let reply = try await NativeAPIClient.shared.createTask(title: clean)
+            return .result(dialog: IntentDialog(stringLiteral: reply))
+        } catch {
+            return .result(dialog: IntentDialog(stringLiteral: "No he podido crear la tarea: \(error.localizedDescription)"))
+        }
+    }
+}
+
+struct CalendarZyronIntent: AppIntent {
+    static var title: LocalizedStringResource = "Calendario con ZYRON"
+    static var description = IntentDescription("Envía una orden en lenguaje natural al calendario de ZYRON. Las operaciones destructivas siguen pidiendo confirmación.")
+
+    @Parameter(
+        title: "Orden",
+        requestValueDialog: IntentDialog("¿Qué quieres hacer en tu calendario?")
+    )
+    var command: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let clean = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return .result(dialog: "Dime qué quieres hacer en el calendario.") }
+        if let dialog = requireZyronSession() { return .result(dialog: dialog) }
+
+        do {
+            let reply = try await NativeAPIClient.shared.runCalendarCommand(clean)
+            return .result(dialog: IntentDialog(stringLiteral: reply))
+        } catch {
+            return .result(dialog: IntentDialog(stringLiteral: "No he podido ejecutar la orden de calendario: \(error.localizedDescription)"))
         }
     }
 }
@@ -155,6 +208,26 @@ struct ZyronAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Preguntar a ZYRON",
             systemImageName: "sparkles"
+        )
+
+        AppShortcut(
+            intent: CreateZyronTaskIntent(),
+            phrases: [
+                "Crea en \(.applicationName) la tarea \(\.$title)",
+                "Apunta en \(.applicationName) \(\.$title)",
+            ],
+            shortTitle: "Crear tarea",
+            systemImageName: "checklist"
+        )
+
+        AppShortcut(
+            intent: CalendarZyronIntent(),
+            phrases: [
+                "Calendario con \(.applicationName) \(\.$command)",
+                "Dile a \(.applicationName) que en el calendario \(\.$command)",
+            ],
+            shortTitle: "Calendario",
+            systemImageName: "calendar.badge.plus"
         )
 
         AppShortcut(
