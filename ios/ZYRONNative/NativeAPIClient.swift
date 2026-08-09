@@ -64,6 +64,15 @@ private struct NativePlacesRequest: Encodable {
     let longitude: Double?
 }
 
+private struct NativeTaskCreateRequest: Encodable {
+    let title: String
+    let dueAt: String?
+}
+
+private struct NativeCalendarCommandRequest: Encodable {
+    let message: String
+}
+
 enum NativeAPIError: LocalizedError {
     case notAuthenticated
     case invalidResponse
@@ -165,6 +174,32 @@ final class NativeAPIClient {
             deviceLocation: deviceLocation
         )
         let data = try await postJSON(path: "/api/chat", body: body)
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reply = object["reply"] as? String,
+              !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NativeAPIError.invalidResponse
+        }
+        return reply
+    }
+
+    func createTask(title: String, dueAt: String? = nil) async throws -> String {
+        let data = try await postJSON(
+            path: "/api/tasks",
+            body: NativeTaskCreateRequest(title: title, dueAt: dueAt)
+        )
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let task = object["task"] as? [String: Any],
+              let savedTitle = task["title"] as? String else {
+            throw NativeAPIError.invalidResponse
+        }
+        return "He creado la tarea «\(savedTitle)»."
+    }
+
+    func runCalendarCommand(_ message: String) async throws -> String {
+        let data = try await postJSON(
+            path: "/api/calendar/command",
+            body: NativeCalendarCommandRequest(message: message)
+        )
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let reply = object["reply"] as? String,
               !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
