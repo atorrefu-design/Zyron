@@ -5,6 +5,7 @@ import {
   dispatchNativeAction,
   executeZyronRequest,
   userFacingTextForBlockedAction,
+  waitForNativeActionResult,
 } from "../lib/client/action-client";
 import RealtimeVoice, { type RealtimeVoiceState } from "./realtime-voice";
 
@@ -258,11 +259,27 @@ export default function Home() {
           { signal: controller.signal },
         );
 
-        if (data.mode === "native_execute") {
+        if (data.mode === "native_execute" && data.action) {
+          // Subscribe before dispatching so a very fast native executor cannot race
+          // the browser and emit its result before the listener exists.
+          const nativeResultPromise = waitForNativeActionResult(data.action, {
+            timeoutMs: 30_000,
+            signal: controller.signal,
+          });
           const acceptedByNative = dispatchNativeAction(data);
-          reply = acceptedByNative
-            ? "Ejecutando."
-            : "Esta acción necesita el companion nativo de ZYRON en el iPhone.";
+          if (!acceptedByNative) {
+            void nativeResultPromise.catch(() => undefined);
+            reply = "Esta acción necesita el companion nativo de ZYRON en el iPhone.";
+          } else {
+            const nativeResult = await nativeResultPromise;
+            if (!nativeResult.handled) {
+              throw new Error("El companion no reconoce todavía esta acción");
+            }
+            if (!nativeResult.succeeded) {
+              throw new Error(nativeResult.reply || "El iPhone no ha podido completar la acción");
+            }
+            reply = nativeResult.reply?.trim() || "Hecho.";
+          }
         } else {
           const blocked = userFacingTextForBlockedAction(data);
           if (blocked) reply = blocked;
