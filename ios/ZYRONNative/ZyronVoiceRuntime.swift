@@ -121,8 +121,12 @@ final class ZyronVoiceRuntime: ObservableObject {
 
     func recoverAlwaysOnIfNeeded() {
         guard desiredAlwaysOn else { return }
-        guard state != .connecting, state != .active else { return }
-        schedulePassiveRecovery(delayMs: 150)
+        switch state {
+        case .connecting, .active:
+            return
+        default:
+            schedulePassiveRecovery(delayMs: 150)
+        }
     }
 
     func wakeWordDetected() {
@@ -213,8 +217,11 @@ final class ZyronVoiceRuntime: ObservableObject {
         audioSession.onRouteChanged = { [weak self] in
             Task { @MainActor in
                 guard let self, self.desiredAlwaysOn else { return }
-                if self.state == .passive || self.state == .interrupted || self.state == .failed("") {
+                switch self.state {
+                case .passive, .interrupted, .failed:
                     self.schedulePassiveRecovery(delayMs: 250)
+                case .stopped, .candidate, .connecting, .active:
+                    break
                 }
             }
         }
@@ -315,7 +322,12 @@ final class ZyronVoiceRuntime: ObservableObject {
 
     private func recoverPassiveListener() {
         guard desiredAlwaysOn else { return }
-        guard state != .connecting, state != .active else { return }
+        switch state {
+        case .connecting, .active:
+            return
+        default:
+            break
+        }
         sessionCoordinator.reset()
         wakeDetector?.stop()
         audioSession.deactivate()
