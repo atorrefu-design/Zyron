@@ -1,0 +1,46 @@
+name: iOS Cloud Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/CloudSmoke/**"
+      - ".github/workflows/ios-cloud-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zyron-ios-cloud-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios/CloudSmoke
+        run: xcodegen generate
+
+      - name: Build ZYRON for iOS Simulator
+        working-directory: ios/CloudSmoke
+        run: |
+          xcodebuild \
+            -project ZYRON.xcodeproj \
+            -scheme ZYRON \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
