@@ -8,6 +8,7 @@ struct ZYRONApp: App {
 
     init() {
         NativeNotificationBridge.shared.configure()
+        VoiceDiagnosticsLog.record("app_init")
     }
 
     var body: some Scene {
@@ -15,17 +16,28 @@ struct ZYRONApp: App {
             ContentView()
                 .environmentObject(controller)
                 .task {
+                    VoiceDiagnosticsLog.record("app_task_started")
                     await controller.restore()
                     await handlePendingIntent()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .zyronStartVoiceRequested)) { _ in
+                    VoiceDiagnosticsLog.record("notification_requested_voice")
                     Task { await controller.startManualConversation() }
                 }
                 .onChange(of: scenePhase) { phase in
-                    guard phase == .active else { return }
-                    Task {
-                        await controller.companionBecameActive()
-                        await handlePendingIntent()
+                    switch phase {
+                    case .active:
+                        VoiceDiagnosticsLog.record("scene_active")
+                        Task {
+                            await controller.companionBecameActive()
+                            await handlePendingIntent()
+                        }
+                    case .inactive:
+                        VoiceDiagnosticsLog.record("scene_inactive")
+                    case .background:
+                        VoiceDiagnosticsLog.record("scene_background")
+                    @unknown default:
+                        VoiceDiagnosticsLog.record("scene_unknown")
                     }
                 }
         }
@@ -36,6 +48,7 @@ struct ZYRONApp: App {
         let key = "zyron.intent.pending-action"
         guard let raw = UserDefaults.standard.string(forKey: key) else { return }
         UserDefaults.standard.removeObject(forKey: key)
+        VoiceDiagnosticsLog.record("pending_intent_\(raw)")
 
         switch raw {
         case "voice":
