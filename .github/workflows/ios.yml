@@ -11,6 +11,7 @@ on:
     paths:
       - "ios/**"
       - ".github/workflows/ios.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,7 +46,7 @@ jobs:
           -scheme ZYRON
           -resolvePackageDependencies
 
-      - name: Compile app and tests
+      - name: Compile app and tests for Simulator
         run: >-
           set -o pipefail &&
           xcodebuild
@@ -53,7 +54,40 @@ jobs:
           -scheme ZYRON
           -configuration Debug
           -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath /tmp/zyron-derived-data
+          -derivedDataPath /tmp/zyron-derived-data-simulator
           CODE_SIGNING_ALLOWED=NO
           build-for-testing
           | xcbeautify
+
+      - name: Build unsigned app for physical iPhone
+        run: >-
+          set -o pipefail &&
+          xcodebuild
+          -project ios/ZYRON.xcodeproj
+          -scheme ZYRON
+          -configuration Debug
+          -destination 'generic/platform=iOS'
+          -derivedDataPath /tmp/zyron-derived-data-device
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build
+          | xcbeautify
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="/tmp/zyron-derived-data-device/Build/Products/Debug-iphoneos/ZYRON.app"
+          test -d "$APP"
+          rm -rf /tmp/zyron-payload
+          mkdir -p /tmp/zyron-payload/Payload
+          cp -R "$APP" /tmp/zyron-payload/Payload/ZYRON.app
+          cd /tmp/zyron-payload
+          zip -qry "$GITHUB_WORKSPACE/ZYRON-unsigned.ipa" Payload
+
+      - name: Upload unsigned iPhone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZYRON-unsigned-iphone
+          path: ZYRON-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
