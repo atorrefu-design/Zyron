@@ -14,6 +14,12 @@ struct NativeDeviceLocation: Codable {
     let capturedAt: String
 }
 
+struct NativeHealthResponse: Decodable {
+    let ok: Bool
+    let service: String?
+    let timestamp: String?
+}
+
 struct VoicePolicyEnvelope: Decodable {
     struct Communication: Decodable {
         let timeZone: String
@@ -85,6 +91,19 @@ final class NativeAPIClient {
     }
 
     private init() {}
+
+    func fetchHealth() async throws -> NativeHealthResponse {
+        var request = URLRequest(url: baseURL.appending(path: "/api/health"))
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let http = try validatedHTTP(response)
+        guard (200..<300).contains(http.statusCode) else {
+            throw NativeAPIError.server(status: http.statusCode, detail: serverDetail(data))
+        }
+        return try JSONDecoder().decode(NativeHealthResponse.self, from: data)
+    }
 
     func login(ownerKey: String) async throws {
         var request = URLRequest(url: baseURL.appending(path: "/api/auth/native-login"))
