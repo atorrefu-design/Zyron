@@ -9,10 +9,9 @@ export type ZyronClientDirective =
       requiresConfirmation: boolean;
     }
   | {
-      kind: "native_action";
+      kind: "native_execute";
       capabilityId: string;
       action: string;
-      message: string;
       requiresConfirmation: boolean;
     }
   | {
@@ -44,12 +43,11 @@ function directiveFromPlan(plan: CapabilityExecutionPlan): ZyronClientDirective 
     };
   }
 
-  if (plan.mode === "handoff") {
+  if ((plan.mode === "native_execute" || plan.mode === "handoff") && plan.nativeAction) {
     return {
-      kind: "native_action",
+      kind: "native_execute",
       capabilityId: plan.capabilityId,
-      action: plan.nativeAction || "open_companion",
-      message: plan.userMessage || "Necesito continuar esta acción desde el iPhone.",
+      action: plan.nativeAction,
       requiresConfirmation: plan.requiresConfirmation,
     };
   }
@@ -59,7 +57,7 @@ function directiveFromPlan(plan: CapabilityExecutionPlan): ZyronClientDirective 
       kind: "request_access",
       capabilityId: plan.capabilityId,
       action: plan.nativeAction,
-      message: plan.userMessage || "Necesito tu permiso para continuar.",
+      message: plan.userMessage || "Necesito un permiso o recurso que todavía no está autorizado.",
     };
   }
 
