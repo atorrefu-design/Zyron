@@ -26,6 +26,7 @@ final class ZyronVoiceRuntime: ObservableObject {
     private var wakeDetector: WakeWordDetecting?
     private var transport: NativeRealtimeTransport?
     private var desiredAlwaysOn = false
+    private var recoveryTask: Task<Void, Never>?
 
     init(
         sessionCoordinator: VoiceSessionCoordinator? = nil,
@@ -59,7 +60,6 @@ final class ZyronVoiceRuntime: ObservableObject {
                 self?.wakeWordDetected()
             }
         }
-
     }
 
     func install(transport: NativeRealtimeTransport) {
@@ -82,6 +82,7 @@ final class ZyronVoiceRuntime: ObservableObject {
 
     func startManualConversation(command: String? = nil) {
         guard state != .connecting, state != .active else { return }
+        recoveryTask?.cancel()
         wakeDetector?.stop()
         sessionCoordinator.reset()
         sessionCoordinator.activateManually(command: command)
@@ -100,6 +101,7 @@ final class ZyronVoiceRuntime: ObservableObject {
             throw WakeWordDetectorError.porcupineUnavailable
         }
 
+        recoveryTask?.cancel()
         desiredAlwaysOn = true
         sessionCoordinator.reset()
         try wakeDetector.start()
@@ -107,12 +109,20 @@ final class ZyronVoiceRuntime: ObservableObject {
     }
 
     func stopAlwaysOn() {
+        recoveryTask?.cancel()
+        recoveryTask = nil
         desiredAlwaysOn = false
         wakeDetector?.stop()
         transport?.disconnect()
         audioSession.deactivate()
         sessionCoordinator.reset()
         state = .stopped
+    }
+
+    func recoverAlwaysOnIfNeeded() {
+        guard desiredAlwaysOn else { return }
+        guard state != .connecting, state != .active else { return }
+        schedulePassiveRecovery(delayMs: 150)
     }
 
     func wakeWordDetected() {
@@ -172,9 +182,14 @@ final class ZyronVoiceRuntime: ObservableObject {
 
         audioSession.onInterruptionBegan = { [weak self] in
             Task { @MainActor in
-                guard let self, self.state == .active else { return }
-                self.sessionCoordinator.conversationInterrupted()
-                self.state = .interrupted
+                guard let self else { return }
+                if self.state == .active {
+                    self.sessionCoordinator.conversationInterrupted()
+                    self.state = .interrupted
+                } else if self.desiredAlwaysOn {
+                    self.wakeDetector?.stop()
+                    self.state = .interrupted
+                }
             }
         }
 
@@ -182,10 +197,24 @@ final class ZyronVoiceRuntime: ObservableObject {
             Task { @MainActor in
                 guard let self, self.desiredAlwaysOn else { return }
                 if self.transport?.isConnected == true {
-                    self.sessionCoordinator.conversationResumed()
-                    self.state = .active
+                    do {
+                        try self.audioSession.activateForConversation()
+                        self.sessionCoordinator.conversationResumed()
+                        self.state = .active
+                    } catch {
+                        self.schedulePassiveRecovery()
+                    }
                 } else {
-                    self.returnToPassive()
+                    self.schedulePassiveRecovery()
+                }
+            }
+        }
+
+        audioSession.onRouteChanged = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.desiredAlwaysOn else { return }
+                if self.state == .passive || self.state == .interrupted || self.state == .failed("") {
+                    self.schedulePassiveRecovery(delayMs: 250)
                 }
             }
         }
@@ -199,10 +228,10 @@ final class ZyronVoiceRuntime: ObservableObject {
                         self.sessionCoordinator.conversationResumed()
                         self.state = .active
                     } catch {
-                        self.fail(error.localizedDescription)
+                        self.schedulePassiveRecovery()
                     }
                 } else {
-                    self.returnToPassive()
+                    self.schedulePassiveRecovery()
                 }
             }
         }
@@ -214,6 +243,7 @@ final class ZyronVoiceRuntime: ObservableObject {
             return
         }
 
+        recoveryTask?.cancel()
         state = .connecting
         wakeDetector?.stop()
         outputRouter.refreshPolicy()
@@ -243,6 +273,9 @@ final class ZyronVoiceRuntime: ObservableObject {
             audioSession.deactivate()
             sessionCoordinator.reset()
             fail(error.localizedDescription)
+            if desiredAlwaysOn {
+                schedulePassiveRecovery(delayMs: 700)
+            }
         }
     }
 
@@ -262,11 +295,36 @@ final class ZyronVoiceRuntime: ObservableObject {
         if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            state == .connecting {
             fail(reason)
+            schedulePassiveRecovery(delayMs: 700)
             return
         }
 
         sessionCoordinator.reset()
-        returnToPassive()
+        schedulePassiveRecovery(delayMs: 250)
+    }
+
+    private func schedulePassiveRecovery(delayMs: UInt64 = 350) {
+        guard desiredAlwaysOn else { return }
+        recoveryTask?.cancel()
+        recoveryTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(delayMs))
+            guard !Task.isCancelled else { return }
+            await self?.recoverPassiveListener()
+        }
+    }
+
+    private func recoverPassiveListener() {
+        guard desiredAlwaysOn else { return }
+        guard state != .connecting, state != .active else { return }
+        sessionCoordinator.reset()
+        wakeDetector?.stop()
+        audioSession.deactivate()
+        do {
+            try wakeDetector?.start()
+            state = .passive
+        } catch {
+            fail(error.localizedDescription)
+        }
     }
 
     private func returnToPassive() {
@@ -274,14 +332,7 @@ final class ZyronVoiceRuntime: ObservableObject {
             state = .stopped
             return
         }
-
-        sessionCoordinator.reset()
-        do {
-            try wakeDetector?.start()
-            state = .passive
-        } catch {
-            fail(error.localizedDescription)
-        }
+        schedulePassiveRecovery(delayMs: 150)
     }
 
     private func fail(_ message: String) {
