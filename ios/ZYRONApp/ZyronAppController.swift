@@ -94,6 +94,13 @@ final class ZyronAppController: ObservableObject {
         }
     }
 
+    func companionBecameActive() async {
+        await refreshCloudStatus()
+        guard isAuthenticated, isAlwaysOnEnabled else { return }
+        guard !isConversationRunning else { return }
+        runtime.recoverAlwaysOnIfNeeded()
+    }
+
     func refreshCloudStatus() async {
         do {
             let health = try await apiClient.fetchHealth()
@@ -282,7 +289,7 @@ final class ZyronAppController: ObservableObject {
                 ? "Conversación activa. Habla con naturalidad."
                 : "Conversación activa en modo silencioso."
         case .interrupted:
-            statusMessage = "Conversación interrumpida por iOS; intentaré recuperarla."
+            statusMessage = "iOS ha interrumpido el audio. ZYRON intentará recuperar la escucha automáticamente."
         case let .failed(message):
             statusMessage = message
         }
