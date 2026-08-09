@@ -39,7 +39,7 @@ export function decideExecution(resolution: ZyronCapabilityResolution): ZyronExe
     };
   }
 
-  if (directive.kind === "native_action") {
+  if (directive.kind === "native_execute") {
     if (directive.requiresConfirmation) {
       return {
         mode: "ask_confirmation",
