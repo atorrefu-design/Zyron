@@ -23,7 +23,10 @@ struct ZYRONApp: App {
                 }
                 .onChange(of: scenePhase) { phase in
                     guard phase == .active else { return }
-                    Task { await handlePendingIntent() }
+                    Task {
+                        await controller.companionBecameActive()
+                        await handlePendingIntent()
+                    }
                 }
         }
     }
