@@ -1,6 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  dispatchNativeAction,
+  executeZyronRequest,
+  userFacingTextForBlockedAction,
+} from "../lib/client/action-client";
 import RealtimeVoice, { type RealtimeVoiceState } from "./realtime-voice";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -248,17 +253,22 @@ export default function Home() {
         reply = await runCalendarCommand(clean);
       } else {
         const deviceLocation = isMobilityQuery(clean) ? await currentDeviceLocation() : null;
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: nextMessages, deviceLocation }),
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
-        if (!response.ok) throw new Error(data.error || `Error ${response.status}`);
-        if (!data.reply?.trim()) throw new Error("El núcleo respondió sin texto");
-        reply = data.reply.trim();
+        const data = await executeZyronRequest(
+          { messages: nextMessages, deviceLocation },
+          { signal: controller.signal },
+        );
+
+        if (data.mode === "native_execute") {
+          const acceptedByNative = dispatchNativeAction(data);
+          reply = acceptedByNative
+            ? "Ejecutando."
+            : "Esta acción necesita el companion nativo de ZYRON en el iPhone.";
+        } else {
+          const blocked = userFacingTextForBlockedAction(data);
+          if (blocked) reply = blocked;
+          else if (data.reply?.trim()) reply = data.reply.trim();
+          else throw new Error(data.error || "El núcleo respondió sin resultado");
+        }
       }
       setMessages((current) => [...current, { role: "assistant", content: reply }]);
     } catch (error) {
