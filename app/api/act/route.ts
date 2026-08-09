@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     };
 
     const resolution = resolveCapabilityRequest(text);
-    const decision = decideAction(resolution);
+    const decision = decideAction(resolution, text);
 
     if (decision.kind === "execute" && decision.transport === "native") {
       return NextResponse.json({
