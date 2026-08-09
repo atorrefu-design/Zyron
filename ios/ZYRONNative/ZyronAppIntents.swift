@@ -17,6 +17,36 @@ private enum ZyronIntentKeys {
     }
 }
 
+struct AskZyronIntent: AppIntent {
+    static var title: LocalizedStringResource = "Preguntar a ZYRON"
+    static var description = IntentDescription("Envía una pregunta directamente al núcleo privado de ZYRON y devuelve la respuesta sin abrir la interfaz.")
+
+    @Parameter(
+        title: "Pregunta",
+        requestValueDialog: IntentDialog("¿Qué quieres preguntarle a ZYRON?")
+    )
+    var query: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else {
+            return .result(dialog: "Dime qué necesitas y se lo paso a ZYRON.")
+        }
+
+        guard NativeAPIClient.shared.hasOwnerSession else {
+            return .result(dialog: "Primero abre la app companion de ZYRON e inicia sesión una vez en este iPhone.")
+        }
+
+        do {
+            let reply = try await NativeAPIClient.shared.queryCore(clean)
+            return .result(dialog: IntentDialog(stringLiteral: reply))
+        } catch {
+            return .result(dialog: IntentDialog(stringLiteral: "No he podido consultar el núcleo de ZYRON: \(error.localizedDescription)"))
+        }
+    }
+}
+
 struct StartZyronIntent: AppIntent {
     static var title: LocalizedStringResource = "Hablar con ZYRON"
     static var description = IntentDescription("Abre ZYRON y prepara una conversación de voz.")
@@ -116,6 +146,17 @@ struct TestZyronNotificationIntent: AppIntent {
 struct ZyronAppShortcuts: AppShortcutsProvider {
     @AppShortcutsBuilder
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: AskZyronIntent(),
+            phrases: [
+                "Pregunta a \(.applicationName) \(\.$query)",
+                "Dile a \(.applicationName) \(\.$query)",
+                "Consulta a \(.applicationName) \(\.$query)",
+            ],
+            shortTitle: "Preguntar a ZYRON",
+            systemImageName: "sparkles"
+        )
+
         AppShortcut(
             intent: StartZyronIntent(),
             phrases: [
