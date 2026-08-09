@@ -11,6 +11,7 @@ final class ZyronAppController: ObservableObject {
     @Published private(set) var responseMode: ZyronResponseMode = VoiceCommunicationPolicy.current().responseMode
     @Published private(set) var latestText = ""
     @Published private(set) var statusMessage: String
+    @Published private(set) var cloudCoreOnline: Bool? = nil
 
     private static let alwaysOnPreferenceKey = "zyron.always-on-enabled"
 
@@ -27,14 +28,20 @@ final class ZyronAppController: ObservableObject {
         self.isAuthenticated = apiClient.hasOwnerSession
         self.hasStoredPicovoiceKey = KeychainStore.picovoiceAccessKey() != nil
         self.statusMessage = apiClient.hasOwnerSession
-            ? "Listo para la prueba de voz nativa."
-            : "Inicia sesión para conectar este iPhone con ZYRON."
+            ? "Companion preparado. Comprobando el núcleo cloud…"
+            : "Conecta este iPhone con el núcleo privado de ZYRON."
 
         bindRuntime()
         RealtimeToolRouter.shared.deviceLocationProvider = { [weak self] in
             guard let self else { return nil }
             return await self.locationProvider.currentLocation()
         }
+    }
+
+    var webAppURL: URL { apiClient.baseURL }
+
+    var diagnosticsURL: URL {
+        apiClient.baseURL.appending(path: "/diagnostics")
     }
 
     var isConversationRunning: Bool {
@@ -54,16 +61,21 @@ final class ZyronAppController: ObservableObject {
         guard !didRestore else { return }
         didRestore = true
 
+        await refreshCloudStatus()
         isAuthenticated = apiClient.hasOwnerSession
         hasStoredPicovoiceKey = KeychainStore.picovoiceAccessKey() != nil
 
         guard isAuthenticated else {
-            statusMessage = "Inicia sesión para conectar este iPhone con ZYRON."
+            statusMessage = cloudCoreOnline == true
+                ? "Núcleo cloud activo. Conecta este iPhone para habilitar funciones nativas."
+                : "Conecta este iPhone con el núcleo privado de ZYRON."
             return
         }
 
         guard UserDefaults.standard.bool(forKey: Self.alwaysOnPreferenceKey) else {
-            statusMessage = "Listo para la prueba de voz nativa."
+            statusMessage = cloudCoreOnline == true
+                ? "Companion conectado al núcleo cloud. Voz nativa lista para probar."
+                : "Sesión local lista; el núcleo cloud no responde ahora mismo."
             return
         }
 
@@ -82,6 +94,15 @@ final class ZyronAppController: ObservableObject {
         }
     }
 
+    func refreshCloudStatus() async {
+        do {
+            let health = try await apiClient.fetchHealth()
+            cloudCoreOnline = health.ok
+        } catch {
+            cloudCoreOnline = false
+        }
+    }
+
     func login(ownerKey rawOwnerKey: String) async {
         let ownerKey = rawOwnerKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ownerKey.isEmpty else {
@@ -96,7 +117,8 @@ final class ZyronAppController: ObservableObject {
         do {
             try await apiClient.login(ownerKey: ownerKey)
             isAuthenticated = true
-            statusMessage = "iPhone autenticado. Ya puedes probar la conversación nativa."
+            await refreshCloudStatus()
+            statusMessage = "Companion autenticado. Ya puedes usar las capacidades nativas del iPhone."
         } catch {
             isAuthenticated = false
             statusMessage = error.localizedDescription
@@ -105,10 +127,16 @@ final class ZyronAppController: ObservableObject {
 
     func startManualConversation() async {
         guard isAuthenticated else {
-            statusMessage = "Primero inicia sesión en este iPhone."
+            statusMessage = "Primero conecta este iPhone con ZYRON."
             return
         }
         guard !isConversationRunning else { return }
+
+        await refreshCloudStatus()
+        guard cloudCoreOnline == true else {
+            statusMessage = "El núcleo cloud no responde. ZYRON Web seguirá siendo la referencia cuando vuelva la conexión."
+            return
+        }
 
         isBusy = true
         statusMessage = "Preparando el micrófono…"
@@ -128,12 +156,12 @@ final class ZyronAppController: ObservableObject {
         runtime.stopConversation()
         statusMessage = isAlwaysOnEnabled
             ? "Conversación cerrada. Vuelvo a escuchar «ZYRON»."
-            : "Conversación cerrada."
+            : "Conversación cerrada. Companion listo."
     }
 
     func enableAlwaysOn(accessKey rawAccessKey: String) async {
         guard isAuthenticated else {
-            statusMessage = "Primero inicia sesión en este iPhone."
+            statusMessage = "Primero conecta este iPhone con ZYRON."
             return
         }
 
@@ -175,7 +203,7 @@ final class ZyronAppController: ObservableObject {
         isAlwaysOnEnabled = false
         UserDefaults.standard.set(false, forKey: Self.alwaysOnPreferenceKey)
         replaceRuntime(with: NativeVoiceBootstrap.makeManualRuntime(apiClient: apiClient))
-        statusMessage = "Escucha por nombre desactivada. La conversación manual sigue disponible."
+        statusMessage = "Escucha por nombre desactivada. El companion sigue conectado al núcleo cloud."
     }
 
     func logout() {
@@ -189,7 +217,7 @@ final class ZyronAppController: ObservableObject {
         isAlwaysOnEnabled = false
         hasStoredPicovoiceKey = false
         latestText = ""
-        statusMessage = "Sesión y claves locales eliminadas de este iPhone."
+        statusMessage = "Sesión y claves locales eliminadas de este iPhone. ZYRON Web no se ha borrado."
     }
 
     private func installAlwaysOnRuntime(resources: NativeVoiceBootstrap.Resources) throws {
@@ -241,7 +269,7 @@ final class ZyronAppController: ObservableObject {
         switch state {
         case .stopped:
             if !isBusy && isAuthenticated && !isAlwaysOnEnabled {
-                statusMessage = "Listo para la prueba de voz nativa."
+                statusMessage = "Companion conectado. Voz nativa lista para probar."
             }
         case .passive:
             statusMessage = "Escuchando «ZYRON» de forma local."
