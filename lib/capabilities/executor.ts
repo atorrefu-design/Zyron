@@ -2,7 +2,7 @@ import { type CapabilityRoute } from "./router";
 
 export type CapabilityExecutionPlan = {
   capabilityId: string;
-  mode: "execute" | "handoff" | "request_access" | "fallback";
+  mode: "execute" | "native_execute" | "handoff" | "request_access" | "fallback";
   endpoint?: string;
   nativeAction?: string;
   userMessage?: string;
@@ -19,37 +19,43 @@ const EXECUTORS: Record<string, Omit<CapabilityExecutionPlan, "capabilityId" | "
     endpoint: "/api/tasks",
   },
   "location.current": {
-    mode: "request_access",
-    nativeAction: "request_location",
-    userMessage: "Necesito la ubicación actual del iPhone para resolver esta petición.",
+    mode: "native_execute",
+    nativeAction: "get_current_location",
   },
   "maps.mobility": {
     mode: "execute",
     endpoint: "/api/maps/route",
   },
+  "web.current_info": {
+    mode: "execute",
+    endpoint: "/api/search/current",
+  },
   "basketball.fcbq": {
-    mode: "fallback",
-    userMessage: "Todavía no tengo conectado el adaptador de FCBQ. Puedo usar la fuente oficial en cuanto esté disponible.",
+    mode: "execute",
+    endpoint: "/api/search/current",
+    userMessage: "Prioriza la fuente oficial de FCBQ cuando exista; si no, usa la mejor fuente fiable disponible.",
+  },
+  "recording.control": {
+    mode: "native_execute",
+    nativeAction: "recording_control",
   },
   "recordings.import": {
     mode: "request_access",
     nativeAction: "share_or_select_recording",
-    userMessage: "Compárteme la grabación o autoriza el archivo para poder analizarla.",
+    userMessage: "Necesito acceso al archivo concreto para analizar una grabación ya existente.",
   },
   "whatsapp.handoff": {
-    mode: "handoff",
-    nativeAction: "open_whatsapp",
-    userMessage: "Puedo llevarte a WhatsApp o al chat compatible, pero no leer conversaciones privadas por detrás.",
+    mode: "native_execute",
+    nativeAction: "open_whatsapp_target",
   },
   "files.authorized": {
     mode: "request_access",
     nativeAction: "select_file_or_folder",
-    userMessage: "Necesito que autorices el archivo o carpeta que quieres que use.",
+    userMessage: "Necesito acceso al archivo o carpeta concreta que aún no está autorizada.",
   },
   "notifications.native": {
-    mode: "handoff",
+    mode: "native_execute",
     nativeAction: "schedule_native_notification",
-    userMessage: "Esta acción necesita el companion del iPhone para crear el aviso nativo.",
   },
 };
 
@@ -64,7 +70,10 @@ export function buildCapabilityExecutionPlan(route: CapabilityRoute): Capability
     };
   }
 
-  const mode = route.fallbackOnly && base.mode === "execute" ? "fallback" : base.mode;
+  const mode = route.fallbackOnly && (base.mode === "execute" || base.mode === "native_execute")
+    ? "fallback"
+    : base.mode;
+
   return {
     capabilityId: route.capability.id,
     ...base,
