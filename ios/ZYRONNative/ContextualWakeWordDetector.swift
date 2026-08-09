@@ -53,7 +53,7 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
         self.audioSession = audioSession
         self.postWakeDurationMs = max(250, postWakeDurationMs)
         self.rollingCapacity = max(
-            Porcupine.frameLength * 2,
+            Int(Porcupine.frameLength) * 2,
             Int((Double(Porcupine.sampleRate) * Double(max(500, contextWindowMs))) / 1000.0)
         )
         self.rolling = Int16RingBuffer(capacity: rollingCapacity)
@@ -182,7 +182,7 @@ final class ContextualPorcupineWakeWordDetector: ContextAwareWakeWordDetecting {
             porcupineBufferStartAbsolute = absoluteStart
         }
         porcupinePending.append(contentsOf: samples)
-        let frameLength = Porcupine.frameLength
+        let frameLength = Int(Porcupine.frameLength)
 
         while porcupinePending.count - porcupineOffset >= frameLength {
             let start = porcupineOffset

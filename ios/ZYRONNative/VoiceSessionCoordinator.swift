@@ -65,10 +65,28 @@ final class VoiceSessionCoordinator: ObservableObject {
         }
     }
 
+    func activateManually(command: String? = nil) {
+        switch state {
+        case .passive:
+            break
+        case .failed:
+            reset()
+        default:
+            return
+        }
+
+        beginActiveSession(command: command)
+    }
+
     func registerConversationActivity() {
         guard state == .active else { return }
         softEndTask?.cancel()
         softEndTask = nil
+        scheduleIdleTimeout()
+    }
+
+    func registerAssistantActivity() {
+        guard state == .active else { return }
         scheduleIdleTimeout()
     }
 

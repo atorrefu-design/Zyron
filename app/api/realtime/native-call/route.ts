@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 export const runtime = "nodejs";
 
 const OPENAI_REALTIME_URL = "https://api.openai.com/v1/realtime/calls";
@@ -8,6 +10,12 @@ function getApiKey() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error("openai_api_key_missing");
   return apiKey;
+}
+
+function openAISafetyIdentifier() {
+  const secret = process.env.ZYRON_AUTH_SECRET?.trim() || process.env.ZYRON_OWNER_KEY?.trim();
+  if (!secret) return null;
+  return createHmac("sha256", secret).update("zyron-owner-aaron").digest("hex");
 }
 
 function requestedOutputMode(request: Request): OutputMode {
@@ -37,6 +45,11 @@ function buildRealtimeSession(outputMode: OutputMode) {
     audio: {
       input: {
         noise_reduction: { type: "near_field" },
+        transcription: {
+          model: "gpt-4o-mini-transcribe",
+          language: "es",
+          prompt: "ZYRON, Aarón, Barcelona",
+        },
         turn_detection: {
           type: "server_vad",
           threshold: 0.45,
@@ -126,9 +139,13 @@ export async function POST(request: Request) {
     form.set("sdp", sdp);
     form.set("session", JSON.stringify(buildRealtimeSession(outputMode)));
 
+    const safetyIdentifier = openAISafetyIdentifier();
     const response = await fetch(OPENAI_REALTIME_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${getApiKey()}` },
+      headers: {
+        Authorization: `Bearer ${getApiKey()}`,
+        ...(safetyIdentifier ? { "OpenAI-Safety-Identifier": safetyIdentifier } : {}),
+      },
       body: form,
       cache: "no-store",
     });

@@ -48,12 +48,7 @@ final class AudioSessionManager {
 
     func activateForConversation() throws {
         let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker]
-        if #available(iOS 26.0, *) {
-            options.insert(.allowBluetoothHFP)
-        } else {
-            options.insert(.allowBluetooth)
-        }
+        let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth]
 
         try session.setCategory(
             .playAndRecord,

@@ -18,6 +18,10 @@ final class OnDeviceInvocationTranscriber {
         }
     }
 
+    static var isAuthorized: Bool {
+        SFSpeechRecognizer.authorizationStatus() == .authorized
+    }
+
     func transcribe(_ context: WakeWordAudioContext) async throws -> String {
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
             throw OnDeviceInvocationError.speechNotAuthorized

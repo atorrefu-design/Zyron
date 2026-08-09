@@ -1,0 +1,83 @@
+name: ZYRON
+
+options:
+  bundleIdPrefix: com.atorrefu
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  Porcupine:
+    url: https://github.com/Picovoice/porcupine.git
+    revision: c23ab023ae410766cb835446765537b25013b166
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 151.0.0
+
+targets:
+  ZYRON:
+    type: application
+    platform: iOS
+    sources:
+      - path: ZYRONApp
+      - path: ZYRONNative
+        excludes:
+          - "*.md"
+    dependencies:
+      - package: Porcupine
+      - package: WebRTC
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atorrefu.zyron
+        PRODUCT_NAME: ZYRON
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.5.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: false
+        ENABLE_USER_SCRIPT_SANDBOXING: true
+    info:
+      path: ZYRONApp/Info.plist
+      properties:
+        CFBundleDisplayName: ZYRON
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSMicrophoneUsageDescription: ZYRON necesita el micrófono para detectar su nombre y conversar contigo.
+        NSSpeechRecognitionUsageDescription: ZYRON usa reconocimiento local para distinguir cuándo le estás llamando.
+        NSLocationWhenInUseUsageDescription: ZYRON usa tu ubicación solo cuando una consulta necesita resultados cercanos.
+        UIBackgroundModes:
+          - audio
+
+  ZYRONNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ZYRONNativeTests
+    dependencies:
+      - target: ZYRON
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atorrefu.zyron.tests
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: false
+
+schemes:
+  ZYRON:
+    build:
+      targets:
+        ZYRON: all
+        ZYRONNativeTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - ZYRONNativeTests
+    run:
+      config: Debug
+    archive:
+      config: Release

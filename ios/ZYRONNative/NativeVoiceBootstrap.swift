@@ -66,6 +66,23 @@ struct NativeVoiceBootstrap {
         )
     }
 
+    static func requestConversationPermission() async -> Bool {
+        await requestMicrophonePermission()
+    }
+
+    static var hasAlwaysOnPermissions: Bool {
+        AVAudioSession.sharedInstance().recordPermission == .granted
+            && OnDeviceInvocationTranscriber.isAuthorized
+    }
+
+    static func makeManualRuntime(
+        apiClient: NativeAPIClient = .shared
+    ) -> ZyronVoiceRuntime {
+        let runtime = ZyronVoiceRuntime()
+        runtime.install(transport: WebRTCNativeTransport(apiClient: apiClient))
+        return runtime
+    }
+
     static func makeRuntime(
         resources: Resources,
         apiClient: NativeAPIClient = .shared

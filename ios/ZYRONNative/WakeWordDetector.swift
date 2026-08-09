@@ -64,11 +64,11 @@ final class PorcupineWakeWordDetector: WakeWordDetecting {
     }
 
     func stop() {
-        manager?.stop()
+        try? manager?.stop()
     }
 
     func delete() {
-        manager?.delete()
+        try? manager?.delete()
         manager = nil
     }
 
