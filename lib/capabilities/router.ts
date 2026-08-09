@@ -39,16 +39,28 @@ const RULES: Rule[] = [
     reason: "La petición parece de movilidad, tráfico o cálculo de ruta.",
   },
   {
+    capabilityId: "recording.control",
+    terms: ["graba", "grabar", "grabando", "grabación", "grabacion", "grabadora", "deja de grabar", "para de grabar"],
+    phrases: ["graba la siguiente conversación", "graba esta conversación", "empieza a grabar", "deja de grabar", "para de grabar"],
+    reason: "La petición pide controlar directamente una grabación en el iPhone.",
+  },
+  {
     capabilityId: "basketball.fcbq",
-    terms: ["fcbq", "federación", "federacion", "básquet", "basquet", "baloncesto", "partido", "clasificación", "clasificacion", "acta"],
+    terms: ["fcbq", "federación", "federacion", "básquet", "basquet", "baloncesto", "clasificación", "clasificacion", "acta"],
     phrases: ["cuándo juega", "cuando juega", "próximo partido", "proximo partido"],
     reason: "La petición parece depender de información federativa o de baloncesto.",
   },
   {
+    capabilityId: "web.current_info",
+    terms: ["resultado", "marcador", "último partido", "ultimo partido", "noticia", "hoy", "actual", "ahora"],
+    phrases: ["resultado del último partido", "resultado del ultimo partido", "qué pasó", "que paso"],
+    reason: "La petición requiere información actual y debe resolverse consultando una fuente vigente.",
+  },
+  {
     capabilityId: "recordings.import",
-    terms: ["grabación", "grabacion", "audio", "nota de voz", "entreno grabado", "grabadora"],
-    phrases: ["última grabación", "ultima grabacion"],
-    reason: "La petición parece requerir una grabación o archivo de audio autorizado.",
+    terms: ["audio guardado", "nota de voz", "entreno grabado", "archivo de audio"],
+    phrases: ["última grabación", "ultima grabacion", "analiza la grabación", "analiza la grabacion"],
+    reason: "La petición parece requerir una grabación ya existente o un archivo de audio autorizado.",
   },
   {
     capabilityId: "whatsapp.handoff",
@@ -102,7 +114,7 @@ export function routeCapabilities(input: string): CapabilityRoute[] {
       capability,
       score,
       reason: rule.reason,
-      fallbackOnly: capability.status !== "available" || capability.accessLevel === "handoff",
+      fallbackOnly: capability.status === "planned" || capability.accessLevel === "handoff",
     });
   }
 
