@@ -14,6 +14,17 @@ final class NativeActionRouter {
     func executeSpokenCommand(_ rawCommand: String) async -> Result {
         let command = normalize(rawCommand)
 
+        if isPermissionSetupCommand(command) {
+            let snapshot = await PermissionBootstrapper.shared.requestInitialPermissions()
+            if snapshot.notDetermined.isEmpty && snapshot.denied.isEmpty {
+                return Result(handled: true, reply: "Permisos configurados.")
+            }
+            if !snapshot.denied.isEmpty {
+                return Result(handled: true, reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.")
+            }
+            return Result(handled: true, reply: "He iniciado la configuración de permisos.")
+        }
+
         if isStopRecordingCommand(command) {
             do {
                 let url = try NativeRecordingController.shared.stop()
@@ -36,6 +47,17 @@ final class NativeActionRouter {
         }
 
         return Result(handled: false, reply: nil)
+    }
+
+    private func isPermissionSetupCommand(_ command: String) -> Bool {
+        [
+            "configura los permisos",
+            "configura todos los permisos",
+            "activa los permisos",
+            "prepara los permisos",
+            "dame acceso a todo",
+            "configura zyron",
+        ].contains(where: command.contains)
     }
 
     private func isStartRecordingCommand(_ command: String) -> Bool {
