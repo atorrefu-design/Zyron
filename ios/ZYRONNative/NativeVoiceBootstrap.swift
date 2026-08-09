@@ -87,13 +87,14 @@ struct NativeVoiceBootstrap {
         resources: Resources,
         apiClient: NativeAPIClient = .shared
     ) throws -> ZyronVoiceRuntime {
-        let wakeDetector = try ContextualPorcupineWakeWordDetector(
+        let detector = try ContextualPorcupineWakeWordDetector(
             accessKey: resources.porcupineAccessKey,
             keywordURL: resources.wakeWordModelURL,
             spanishModelURL: resources.spanishModelURL,
             contextWindowMs: VoiceEngagementRules.localContextWindowMs,
             postWakeDurationMs: VoiceEngagementRules.wakeConfirmationWindowMs
         )
+        let wakeDetector = LoggingWakeWordDetector(wrapping: detector)
         let transport = WebRTCNativeTransport(apiClient: apiClient)
         let runtime = ZyronVoiceRuntime()
         runtime.installContextAware(
