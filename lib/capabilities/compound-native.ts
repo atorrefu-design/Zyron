@@ -45,60 +45,65 @@ function explicitReferencedType(input: string): NativeResultType | null {
 function refersToPriorResult(input: string) {
   const text = normalize(input);
   return [
-    "eso",
-    "ese resultado",
-    "el resultado",
-    "esa ubicacion",
-    "la ubicacion",
-    "mi ubicacion",
-    "ubicacion actual",
-    "ese archivo",
-    "el archivo",
-    "esa grabacion",
-    "la grabacion",
-    "ese audio",
-    "el audio",
-    "ese enlace",
-    "el enlace",
-    "mandaselo",
-    "mandasela",
-    "enviaselo",
-    "enviasela",
-    "compartelo",
-    "compartela",
+    "eso", "ese resultado", "el resultado", "esa ubicacion", "la ubicacion", "mi ubicacion",
+    "ubicacion actual", "ubicacion de antes", "ubicacion anterior", "ese archivo", "el archivo",
+    "esa grabacion", "la grabacion", "grabacion anterior", "ultima grabacion", "ese audio", "el audio",
+    "ese enlace", "el enlace", "el anterior", "la anterior", "lo anterior", "el primero", "la primera",
+    "el segundo", "la segunda", "el tercero", "la tercera", "el cuarto", "la cuarta", "el quinto",
+    "la quinta", "primer resultado", "segundo resultado", "tercer resultado", "cuarto resultado",
+    "quinto resultado", "ultimo resultado", "ultima salida", "mandaselo", "mandasela", "enviaselo",
+    "enviasela", "compartelo", "compartela",
   ].some((token) => text.includes(token));
 }
 
-function bestTokenFor(
-  requestedType: NativeResultType | null,
-  latestByType: Partial<Record<NativeResultType, number>>,
-  latestResultStep: number,
-) {
-  if (requestedType && latestByType[requestedType] !== undefined) {
-    return `{{step.${latestByType[requestedType]}.result.best}}`;
-  }
-  return latestResultStep >= 0 ? `{{step.${latestResultStep}.result.best}}` : "{{result.best}}";
+function resultIndexesBefore(steps: NativeSequenceStep[], currentIndex: number) {
+  return steps
+    .map((step, index) => ({ step, index }))
+    .filter(({ step, index }) => index < currentIndex && step.resultType !== "unknown")
+    .map(({ index }) => index);
 }
 
-function destinationTokenFor(
+function explicitReferencedStep(input: string, steps: NativeSequenceStep[], currentIndex: number): number | null {
+  const text = normalize(input);
+  const prior = resultIndexesBefore(steps, currentIndex);
+  if (!prior.length) return null;
+
+  if (["el anterior", "la anterior", "lo anterior", "resultado anterior"].some((token) => text.includes(token))) {
+    return prior[prior.length - 1];
+  }
+
+  if (["el primero", "la primera", "primer resultado", "primera salida"].some((token) => text.includes(token))) return prior[0] ?? null;
+  if (["el segundo", "la segunda", "segundo resultado", "segunda salida"].some((token) => text.includes(token))) return prior[1] ?? null;
+  if (["el tercero", "la tercera", "tercer resultado", "tercera salida"].some((token) => text.includes(token))) return prior[2] ?? null;
+  if (["el cuarto", "la cuarta", "cuarto resultado", "cuarta salida"].some((token) => text.includes(token))) return prior[3] ?? null;
+  if (["el quinto", "la quinta", "quinto resultado", "quinta salida"].some((token) => text.includes(token))) return prior[4] ?? null;
+
+  if (["ultimo resultado", "ultima salida"].some((token) => text.includes(token))) return prior[prior.length - 1];
+  return null;
+}
+
+function typedReferencedStep(
   requestedType: NativeResultType | null,
   latestByType: Partial<Record<NativeResultType, number>>,
-  latestResultStep: number,
 ) {
-  if (requestedType === "location" && latestByType.location !== undefined) {
-    return `{{step.${latestByType.location}.result.destination}}`;
-  }
-  if (requestedType && latestByType[requestedType] !== undefined) {
-    return `{{step.${latestByType[requestedType]}.result.best}}`;
-  }
-  return latestResultStep >= 0 ? `{{step.${latestResultStep}.result.destination}}` : "{{result.destination}}";
+  if (!requestedType) return null;
+  return latestByType[requestedType] ?? null;
+}
+
+function bestTokenForStep(stepIndex: number) {
+  return `{{step.${stepIndex}.result.best}}`;
+}
+
+function destinationTokenForStep(stepIndex: number, resultType: NativeResultType | null) {
+  return resultType === "location"
+    ? `{{step.${stepIndex}.result.destination}}`
+    : `{{step.${stepIndex}.result.best}}`;
 }
 
 /**
- * Connects a later action to the semantically requested previous result.
- * If several earlier steps returned different types, phrases such as
- * "manda la ubicación" or "manda la grabación" bind to the latest matching
- * typed step instead of blindly consuming the immediately preceding result.
+ * Connects later actions to the exact earlier result the user refers to.
+ * Resolution order is: explicit ordinal/temporal reference, explicit result
+ * type, then the most recent prior result.
  */
 function wireResultReferences(steps: NativeSequenceStep[]) {
   const latestByType: Partial<Record<NativeResultType, number>> = {};
@@ -109,33 +114,37 @@ function wireResultReferences(steps: NativeSequenceStep[]) {
 
     if (latestResultStep >= 0 && refersToPriorResult(step.input)) {
       const requestedType = explicitReferencedType(step.input);
-      const best = bestTokenFor(requestedType, latestByType, latestResultStep);
+      const ordinalStep = explicitReferencedStep(step.input, steps, index);
+      const typedStep = typedReferencedStep(requestedType, latestByType);
+      const sourceStep = ordinalStep ?? typedStep ?? latestResultStep;
+      const sourceType = steps[sourceStep]?.resultType ?? requestedType;
+      const best = bestTokenForStep(sourceStep);
 
       switch (step.action) {
         case "open_whatsapp_target":
         case "messages.sms": {
           const existing = next.payload.message?.trim();
-          next.payload.message = existing && !existing.includes("{{")
-            ? `${existing} ${best}`
-            : best;
-          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
+          next.payload.message = existing && !existing.includes("{{") ? `${existing} ${best}` : best;
+          next.payload.source = `step_${sourceStep}`;
+          next.payload.sourceType = sourceType ?? "unknown";
           break;
         }
         case "navigation.start":
-          next.payload.destination = destinationTokenFor(requestedType, latestByType, latestResultStep);
-          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
+          next.payload.destination = destinationTokenForStep(sourceStep, sourceType ?? null);
+          next.payload.source = `step_${sourceStep}`;
+          next.payload.sourceType = sourceType ?? "unknown";
           break;
         case "schedule_native_notification": {
           const existing = next.payload.body?.trim();
-          next.payload.body = existing && !existing.includes("{{")
-            ? `${existing} ${best}`
-            : best;
-          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
+          next.payload.body = existing && !existing.includes("{{") ? `${existing} ${best}` : best;
+          next.payload.source = `step_${sourceStep}`;
+          next.payload.sourceType = sourceType ?? "unknown";
           break;
         }
         case "open_url":
           next.payload.url = best;
-          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
+          next.payload.source = `step_${sourceStep}`;
+          next.payload.sourceType = sourceType ?? "unknown";
           break;
         default:
           break;
