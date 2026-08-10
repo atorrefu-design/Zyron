@@ -22,6 +22,10 @@ const EXECUTORS: Record<string, Omit<CapabilityExecutionPlan, "capabilityId" | "
     mode: "native_execute",
     nativeAction: "get_current_location",
   },
+  "apps.open": {
+    mode: "native_execute",
+    nativeAction: "app.open",
+  },
   "maps.navigation": {
     mode: "native_execute",
     nativeAction: "navigation.start",
