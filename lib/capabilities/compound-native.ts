@@ -32,6 +32,16 @@ function splitSequentialClauses(input: string): string[] {
     .filter(Boolean);
 }
 
+function explicitReferencedType(input: string): NativeResultType | null {
+  const text = normalize(input);
+  if (["ubicacion", "donde estoy", "coordenadas"].some((token) => text.includes(token))) return "location";
+  if (["grabacion", "audio", "archivo", "fichero"].some((token) => text.includes(token))) return "file";
+  if (["notificacion", "aviso"].some((token) => text.includes(token))) return "notification";
+  if (["enlace", "url", "link"].some((token) => text.includes(token))) return "url";
+  if (["texto", "mensaje", "resultado"].some((token) => text.includes(token))) return "text";
+  return null;
+}
+
 function refersToPriorResult(input: string) {
   const text = normalize(input);
   return [
@@ -46,6 +56,10 @@ function refersToPriorResult(input: string) {
     "el archivo",
     "esa grabacion",
     "la grabacion",
+    "ese audio",
+    "el audio",
+    "ese enlace",
+    "el enlace",
     "mandaselo",
     "mandasela",
     "enviaselo",
@@ -55,19 +69,48 @@ function refersToPriorResult(input: string) {
   ].some((token) => text.includes(token));
 }
 
+function bestTokenFor(
+  requestedType: NativeResultType | null,
+  latestByType: Partial<Record<NativeResultType, number>>,
+  latestResultStep: number,
+) {
+  if (requestedType && latestByType[requestedType] !== undefined) {
+    return `{{step.${latestByType[requestedType]}.result.best}}`;
+  }
+  return latestResultStep >= 0 ? `{{step.${latestResultStep}.result.best}}` : "{{result.best}}";
+}
+
+function destinationTokenFor(
+  requestedType: NativeResultType | null,
+  latestByType: Partial<Record<NativeResultType, number>>,
+  latestResultStep: number,
+) {
+  if (requestedType === "location" && latestByType.location !== undefined) {
+    return `{{step.${latestByType.location}.result.destination}}`;
+  }
+  if (requestedType && latestByType[requestedType] !== undefined) {
+    return `{{step.${latestByType[requestedType]}.result.best}}`;
+  }
+  return latestResultStep >= 0 ? `{{step.${latestResultStep}.result.destination}}` : "{{result.destination}}";
+}
+
 /**
- * Connects a later action to the most useful representation of the preceding
- * typed result. The iPhone decides at runtime whether result.best means a share
- * link, a file URL, text, an identifier, etc.
+ * Connects a later action to the semantically requested previous result.
+ * If several earlier steps returned different types, phrases such as
+ * "manda la ubicación" or "manda la grabación" bind to the latest matching
+ * typed step instead of blindly consuming the immediately preceding result.
  */
 function wireResultReferences(steps: NativeSequenceStep[]) {
-  let hasPriorResult = false;
+  const latestByType: Partial<Record<NativeResultType, number>> = {};
+  let latestResultStep = -1;
 
-  return steps.map((step) => {
+  return steps.map((step, index) => {
     const next = { ...step, payload: { ...step.payload } };
 
-    if (hasPriorResult && refersToPriorResult(step.input)) {
-      const best = "{{result.best}}";
+    if (latestResultStep >= 0 && refersToPriorResult(step.input)) {
+      const requestedType = explicitReferencedType(step.input);
+      const best = bestTokenFor(requestedType, latestByType, latestResultStep);
+
       switch (step.action) {
         case "open_whatsapp_target":
         case "messages.sms": {
@@ -75,31 +118,34 @@ function wireResultReferences(steps: NativeSequenceStep[]) {
           next.payload.message = existing && !existing.includes("{{")
             ? `${existing} ${best}`
             : best;
-          next.payload.source = "previous_result";
+          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
           break;
         }
         case "navigation.start":
-          next.payload.destination = "{{result.destination}}";
-          next.payload.source = "previous_result";
+          next.payload.destination = destinationTokenFor(requestedType, latestByType, latestResultStep);
+          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
           break;
         case "schedule_native_notification": {
           const existing = next.payload.body?.trim();
           next.payload.body = existing && !existing.includes("{{")
             ? `${existing} ${best}`
             : best;
-          next.payload.source = "previous_result";
+          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
           break;
         }
         case "open_url":
           next.payload.url = best;
-          next.payload.source = "previous_result";
+          next.payload.source = requestedType ? `previous_${requestedType}` : "previous_result";
           break;
         default:
           break;
       }
     }
 
-    if (step.resultType !== "unknown") hasPriorResult = true;
+    if (step.resultType !== "unknown") {
+      latestByType[step.resultType] = index;
+      latestResultStep = index;
+    }
     return next;
   });
 }
