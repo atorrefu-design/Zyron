@@ -33,6 +33,12 @@ const RULES: Rule[] = [
     reason: "La petición necesita o probablemente se beneficia de la ubicación actual.",
   },
   {
+    capabilityId: "maps.navigation",
+    terms: ["llévame", "llevame", "navega", "navegación", "navegacion"],
+    phrases: ["llévame a", "llevame a", "navega hasta", "navega a", "vamos a"],
+    reason: "La petición pide iniciar navegación en el iPhone.",
+  },
+  {
     capabilityId: "maps.mobility",
     terms: ["tráfico", "trafico", "ruta", "llegar", "tardo", "maps", "movilidad", "coche"],
     phrases: ["cuánto tardo", "cuanto tardo", "cómo llego", "como llego"],
