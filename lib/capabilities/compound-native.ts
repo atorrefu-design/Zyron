@@ -13,6 +13,13 @@ function stripWakeWord(value: string) {
   return value.replace(/^\s*(zyron|zayron)[,\s:-]*/i, "").trim();
 }
 
+function normalize(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 function splitSequentialClauses(input: string): string[] {
   const clean = stripWakeWord(input);
   if (/\b(si|cuando|después de que|despues de que)\b/i.test(clean)) return [];
@@ -21,6 +28,43 @@ function splitSequentialClauses(input: string): string[] {
     .split(/\s+(?:y\s+luego|y\s+despu[eé]s|luego|despu[eé]s|y)\s+/i)
     .map((part) => part.trim())
     .filter(Boolean);
+}
+
+function wireResultReferences(steps: NativeSequenceStep[]) {
+  let lastLocationStep = -1;
+
+  return steps.map((step, index) => {
+    const next = { ...step, payload: { ...step.payload } };
+    if (step.capabilityId === "location.current") {
+      lastLocationStep = index;
+      return next;
+    }
+
+    if (lastLocationStep < 0) return next;
+    const text = normalize(step.input);
+    const refersToLocation = [
+      "mi ubicacion",
+      "esa ubicacion",
+      "la ubicacion",
+      "ubicacion actual",
+      "mandasela",
+      "enviasela",
+      "compartela",
+    ].some((token) => text.includes(token));
+
+    if (!refersToLocation) return next;
+
+    if (step.action === "open_whatsapp_target" || step.action === "messages.sms") {
+      const existing = next.payload.message?.trim();
+      const locationToken = "{{location.current.share}}";
+      next.payload.message = existing && !existing.includes("{{")
+        ? `${existing} ${locationToken}`
+        : locationToken;
+      next.payload.sourceStep = String(lastLocationStep);
+    }
+
+    return next;
+  });
 }
 
 export function buildNativeSequence(input: string): NativeSequenceStep[] | null {
@@ -41,5 +85,5 @@ export function buildNativeSequence(input: string): NativeSequenceStep[] | null 
     });
   }
 
-  return steps.length >= 2 ? steps : null;
+  return steps.length >= 2 ? wireResultReferences(steps) : null;
 }
