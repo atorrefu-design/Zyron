@@ -25,6 +25,12 @@ function extractDestination(input: string): string | undefined {
   return undefined;
 }
 
+function extractAppName(input: string): string | undefined {
+  const clean = stripWakeWord(input);
+  const match = clean.match(/(?:abre|abrir|inicia|lanza)\s+(?:la\s+app\s+de\s+|la\s+aplicacion\s+de\s+|la\s+aplicación\s+de\s+|la\s+app\s+|la\s+aplicacion\s+|la\s+aplicación\s+)?(.+)$/i);
+  return match?.[1]?.trim().replace(/[.!?]+$/, "");
+}
+
 function extractReminder(input: string): NativePayload {
   const clean = stripWakeWord(input);
   const normalized = normalize(clean);
@@ -37,7 +43,7 @@ function extractReminder(input: string): NativePayload {
     payload.afterSeconds = String(seconds);
   }
 
-  const quoted = clean.match(/[“"]([^”"]+)[”"]/);
+  const quoted = clean.match(/[“"]([^”"]+)[”"]?/);
   if (quoted?.[1]) payload.body = quoted[1].trim();
 
   if (!payload.body) {
@@ -93,7 +99,15 @@ export function buildNativePayload(action: string, input: string): NativePayload
   switch (action) {
     case "navigation.start": {
       const destination = extractDestination(input);
-      return destination ? { destination } : {};
+      if (!destination) return {};
+      const normalized = normalize(destination);
+      if (["casa", "mi casa", "hogar"].includes(normalized)) return { destination, personalPlace: "home" };
+      if (["trabajo", "mi trabajo", "oficina", "la oficina"].includes(normalized)) return { destination, personalPlace: "work" };
+      return { destination };
+    }
+    case "app.open": {
+      const app = extractAppName(input);
+      return app ? { app } : {};
     }
     case "schedule_native_notification":
       return extractReminder(input);
