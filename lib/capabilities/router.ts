@@ -33,6 +33,24 @@ const RULES: Rule[] = [
     reason: "La petición necesita o probablemente se beneficia de la ubicación actual.",
   },
   {
+    capabilityId: "phone.call",
+    terms: ["llama", "llamar", "telefonea", "teléfono", "telefono"],
+    phrases: ["llama a", "llamar a", "telefonea a", "haz una llamada a"],
+    reason: "La petición pide preparar una llamada telefónica.",
+  },
+  {
+    capabilityId: "messages.sms",
+    terms: ["sms", "mensaje de texto"],
+    phrases: ["manda un mensaje a", "envía un mensaje a", "envia un mensaje a", "manda un sms a", "envía un sms a", "envia un sms a"],
+    reason: "La petición pide preparar un mensaje SMS o de texto.",
+  },
+  {
+    capabilityId: "media.play",
+    terms: ["música", "musica", "canción", "cancion", "reproduce", "reproducir", "playlist"],
+    phrases: ["pon música", "pon musica", "pon la canción", "pon la cancion", "reproduce música", "reproduce musica", "reproduce la canción", "reproduce la cancion"],
+    reason: "La petición pide abrir o reproducir contenido multimedia.",
+  },
+  {
     capabilityId: "apps.open",
     terms: ["abre", "abrir", "inicia", "lanza", "spotify", "youtube", "instagram", "telegram", "whatsapp"],
     phrases: ["abre spotify", "abre youtube", "abre la app", "abre la aplicación", "abre la aplicacion"],
@@ -76,7 +94,7 @@ const RULES: Rule[] = [
   },
   {
     capabilityId: "whatsapp.handoff",
-    terms: ["whatsapp", "wasap", "mensaje", "chat"],
+    terms: ["whatsapp", "wasap", "chat"],
     phrases: ["abre el chat", "escribe a", "manda un whatsapp"],
     reason: "La petición parece requerir una acción o traspaso hacia WhatsApp.",
   },
