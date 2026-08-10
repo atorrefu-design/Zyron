@@ -75,11 +75,19 @@ final class NativeActionDispatcher {
 
             guard shouldBranch else { return primaryResult }
 
+            var branchPayload = plan.branch.payload
+            var branchInput = plan.branch.input
+            if let value = primaryResult.value {
+                let context = ["last.value": value, "primary.value": value]
+                branchPayload = self.resolveTemplates(branchPayload, context: context)
+                branchInput = self.resolveTemplates(branchInput, context: context)
+            }
+
             let branchEnvelope = NativeActionEnvelope(
                 action: plan.branch.action,
-                input: plan.branch.input,
+                input: branchInput,
                 capabilityId: plan.branch.capabilityId,
-                payload: plan.branch.payload
+                payload: branchPayload
             )
             let branchResult = await self.execute(branchEnvelope)
             return Result(
@@ -99,12 +107,15 @@ final class NativeActionDispatcher {
             }
 
             var values: [String] = []
-            for step in steps {
+            var context: [String: String] = [:]
+            for (index, step) in steps.enumerated() {
+                let resolvedInput = self.resolveTemplates(step.input, context: context)
+                let resolvedPayload = self.resolveTemplates(step.payload, context: context)
                 let child = NativeActionEnvelope(
                     action: step.action,
-                    input: step.input,
+                    input: resolvedInput,
                     capabilityId: step.capabilityId,
-                    payload: step.payload
+                    payload: resolvedPayload
                 )
                 let result = await self.execute(child)
                 if !result.handled || !result.succeeded {
@@ -115,7 +126,19 @@ final class NativeActionDispatcher {
                         value: result.value
                     )
                 }
-                if let value = result.value { values.append(value) }
+                if let value = result.value {
+                    values.append(value)
+                    context["last.value"] = value
+                    context["step.\(index).value"] = value
+                    context["capability.\(step.capabilityId).value"] = value
+                    if step.capabilityId == "location.current" {
+                        context["location.current.value"] = value
+                        if let shareText = self.locationShareText(from: value) {
+                            context["location.current.share"] = shareText
+                            context["last.share"] = shareText
+                        }
+                    }
+                }
             }
 
             let value = values.isEmpty ? nil : self.jsonArray(values)
@@ -287,6 +310,26 @@ final class NativeActionDispatcher {
             return Result(handled: true, succeeded: false, reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.", value: nil)
         }
         return Result(handled: true, succeeded: true, reply: "He iniciado la configuración de permisos.", value: nil)
+    }
+
+    private func resolveTemplates(_ payload: [String: String], context: [String: String]) -> [String: String] {
+        payload.mapValues { resolveTemplates($0, context: context) }
+    }
+
+    private func resolveTemplates(_ value: String, context: [String: String]) -> String {
+        var resolved = value
+        for (key, replacement) in context {
+            resolved = resolved.replacingOccurrences(of: "{{\(key)}}", with: replacement)
+        }
+        return resolved
+    }
+
+    private func locationShareText(from value: String) -> String? {
+        guard let data = value.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let latitude = object["latitude"] as? Double,
+              let longitude = object["longitude"] as? Double else { return nil }
+        return "Mi ubicación: https://maps.apple.com/?ll=\(latitude),\(longitude)"
     }
 
     private func jsonArray(_ values: [String]) -> String {
