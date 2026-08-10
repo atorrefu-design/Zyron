@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { decideAction } from "../../../lib/capabilities/action-policy";
+import { buildNativePayload } from "../../../lib/capabilities/native-payload";
 import { resolveCapabilityRequest } from "../../../lib/capabilities/resolve";
 
 export const runtime = "nodejs";
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
         action: decision.target,
         capabilityId: decision.capabilityId,
         input: text,
+        payload: buildNativePayload(decision.target, text),
       });
     }
 
