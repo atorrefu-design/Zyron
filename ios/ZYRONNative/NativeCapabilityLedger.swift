@@ -63,6 +63,20 @@ final class NativeCapabilityLedger {
         }.map(\.element)
     }
 
+    func preferredExecutor(from actions: [String]) -> String? {
+        orderedByReliability(actions).first
+    }
+
+    func preferredExecutorsSnapshot(_ groups: [String: [String]]) -> [String: String] {
+        var result: [String: String] = [:]
+        for (capability, actions) in groups {
+            if let preferred = preferredExecutor(from: actions) {
+                result[capability] = preferred
+            }
+        }
+        return result
+    }
+
     func provenActions() -> [String] {
         entries
             .filter { $0.value.successes > 0 }
