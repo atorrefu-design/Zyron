@@ -80,6 +80,44 @@ final class NativeActionDispatcher {
             }
         }
 
+        register("phone.call") { envelope in
+            let target = envelope.payload?["target"] ?? envelope.input ?? ""
+            let opened = await NativeDeviceActions.shared.call(target: target)
+            return Result(
+                handled: true,
+                succeeded: opened,
+                reply: opened ? "Llamada preparada." : NativeDeviceActionError.callUnavailable.localizedDescription,
+                value: nil
+            )
+        }
+
+        register("messages.sms") { envelope in
+            let target = envelope.payload?["target"] ?? ""
+            let message = envelope.payload?["message"] ?? envelope.input
+            let opened = await NativeDeviceActions.shared.composeSMS(target: target, message: message)
+            return Result(
+                handled: true,
+                succeeded: opened,
+                reply: opened ? "Mensaje preparado." : NativeDeviceActionError.smsUnavailable.localizedDescription,
+                value: nil
+            )
+        }
+
+        register("media.play") { envelope in
+            let query = envelope.payload?["query"] ?? envelope.input ?? ""
+            let outcome = await NativeDeviceActions.shared.playMedia(query: query)
+            switch outcome {
+            case .spotify:
+                return Result(handled: true, succeeded: true, reply: "Spotify abierto.", value: "spotify")
+            case .youtube:
+                return Result(handled: true, succeeded: true, reply: "YouTube abierto.", value: "youtube")
+            case .web:
+                return Result(handled: true, succeeded: true, reply: "Contenido abierto.", value: "web")
+            case .failed:
+                return Result(handled: true, succeeded: false, reply: NativeDeviceActionError.mediaUnavailable.localizedDescription, value: nil)
+            }
+        }
+
         register("apps.learned") { _ in
             let learned = NativeAppRegistry.shared.learnedApps()
             let known = NativeAppRegistry.shared.knownIntegrationNames()
@@ -93,6 +131,9 @@ final class NativeActionDispatcher {
             var groups: [String: [String]] = [
                 "maps.navigation": ["navigation.apple_maps", "navigation.google_maps", "navigation.waze"],
                 "whatsapp.handoff": ["whatsapp.native", "whatsapp.web"],
+                "media.play": ["media.spotify", "media.youtube", "media.web"],
+                "phone.call": ["phone.tel"],
+                "messages.compose": ["messages.sms"],
             ]
             for (key, routes) in NativeAppRegistry.shared.adaptiveExecutorGroups() {
                 groups[key] = routes
