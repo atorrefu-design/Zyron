@@ -37,6 +37,11 @@ final class NativeActionDispatcher {
         }
 
         let result = await handler(envelope)
+        NativeCapabilityLedger.shared.record(
+            action: envelope.action,
+            capabilityId: envelope.capabilityId,
+            succeeded: result.succeeded
+        )
         WakeWordDiagnostics.shared.record(
             result.succeeded ? "native_action_succeeded" : "native_action_failed",
             detail: "\(envelope.action); capability=\(envelope.capabilityId ?? "unknown")"
@@ -87,6 +92,13 @@ final class NativeActionDispatcher {
             let learned = NativeAppRegistry.shared.learnedApps()
             let known = NativeAppRegistry.shared.knownIntegrationNames()
             let value = "{\"learned\":\(self.jsonArray(learned)),\"known\":\(self.jsonArray(known))}"
+            return Result(handled: true, succeeded: true, reply: nil, value: value)
+        }
+
+        register("capabilities.learned") { _ in
+            let proven = NativeCapabilityLedger.shared.provenActions()
+            let ledger = NativeCapabilityLedger.shared.snapshotJSON()
+            let value = "{\"proven\":\(self.jsonArray(proven)),\"ledger\":\(ledger)}"
             return Result(handled: true, succeeded: true, reply: nil, value: value)
         }
 
