@@ -12,6 +12,10 @@ function stripWakeWord(value: string) {
   return value.replace(/^\s*(zyron|zayron)[,\s:-]*/i, "").trim();
 }
 
+function cleanValue(value: string) {
+  return value.trim().replace(/^['“"]|['”"]$/g, "").replace(/[.!?]+$/, "").trim();
+}
+
 function extractDestination(input: string): string | undefined {
   const clean = stripWakeWord(input);
   const patterns = [
@@ -20,7 +24,7 @@ function extractDestination(input: string): string | undefined {
   ];
   for (const pattern of patterns) {
     const match = clean.match(pattern);
-    if (match?.[1]?.trim()) return match[1].trim().replace(/[.!?]+$/, "");
+    if (match?.[1]?.trim()) return cleanValue(match[1]);
   }
   return undefined;
 }
@@ -28,7 +32,54 @@ function extractDestination(input: string): string | undefined {
 function extractAppName(input: string): string | undefined {
   const clean = stripWakeWord(input);
   const match = clean.match(/(?:abre|abrir|inicia|lanza)\s+(?:la\s+app\s+de\s+|la\s+aplicacion\s+de\s+|la\s+aplicación\s+de\s+|la\s+app\s+|la\s+aplicacion\s+|la\s+aplicación\s+)?(.+)$/i);
-  return match?.[1]?.trim().replace(/[.!?]+$/, "");
+  return match?.[1] ? cleanValue(match[1]) : undefined;
+}
+
+function extractCallTarget(input: string): NativePayload {
+  const clean = stripWakeWord(input);
+  const patterns = [
+    /(?:llama|llamar|telefonea)\s+(?:a|al)\s+(.+)$/i,
+    /(?:haz|hazme)\s+(?:una\s+)?llamada\s+(?:a|al)\s+(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = clean.match(pattern);
+    if (match?.[1]) return { target: cleanValue(match[1]) };
+  }
+  return {};
+}
+
+function extractSMS(input: string): NativePayload {
+  const clean = stripWakeWord(input);
+  const payload: NativePayload = {};
+  const messagePatterns = [
+    /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
+    /(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
+  ];
+  for (const pattern of messagePatterns) {
+    const match = clean.match(pattern);
+    if (match?.[1]) payload.target = cleanValue(match[1]);
+    if (match?.[2]) payload.message = cleanValue(match[2]);
+    if (payload.target) return payload;
+  }
+
+  const targetOnly = clean.match(/(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+)$/i);
+  if (targetOnly?.[1]) payload.target = cleanValue(targetOnly[1]);
+  return payload;
+}
+
+function extractMediaQuery(input: string): NativePayload {
+  const clean = stripWakeWord(input);
+  const patterns = [
+    /(?:pon|reproduce|reproducir)\s+(?:música|musica|la\s+canción|la\s+cancion|una\s+canción|una\s+cancion|la\s+playlist|playlist)\s+(?:de\s+)?(.+)$/i,
+    /(?:pon|reproduce)\s+(.+)\s+(?:en\s+spotify|en\s+youtube)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = clean.match(pattern);
+    if (match?.[1]) return { query: cleanValue(match[1]) };
+  }
+
+  const generic = clean.match(/(?:pon|reproduce|reproducir)\s+(.+)$/i);
+  return generic?.[1] ? { query: cleanValue(generic[1]) } : {};
 }
 
 function extractReminder(input: string): NativePayload {
@@ -70,8 +121,8 @@ function extractWhatsAppTarget(input: string): NativePayload {
   ];
   for (const pattern of messagePatterns) {
     const match = clean.match(pattern);
-    if (match?.[1]) payload.target = match[1].trim().replace(/[.!?]+$/, "");
-    if (match?.[2]) payload.message = match[2].trim().replace(/^['“"]|['”"]$/g, "").trim();
+    if (match?.[1]) payload.target = cleanValue(match[1]);
+    if (match?.[2]) payload.message = cleanValue(match[2]);
     if (payload.target) return payload;
   }
 
@@ -84,10 +135,9 @@ function extractWhatsAppTarget(input: string): NativePayload {
     if (!match?.[1]) continue;
     const target = match[1]
       .replace(/^(abre|abrir|escribe|mensaje|chat)\s+/i, "")
-      .trim()
-      .replace(/[.!?]+$/, "");
+      .trim();
     if (target) {
-      payload.target = target;
+      payload.target = cleanValue(target);
       return payload;
     }
   }
@@ -109,6 +159,12 @@ export function buildNativePayload(action: string, input: string): NativePayload
       const app = extractAppName(input);
       return app ? { app } : {};
     }
+    case "phone.call":
+      return extractCallTarget(input);
+    case "messages.sms":
+      return extractSMS(input);
+    case "media.play":
+      return extractMediaQuery(input);
     case "schedule_native_notification":
       return extractReminder(input);
     case "open_whatsapp_target":
