@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { decideAction } from "../../../lib/capabilities/action-policy";
+import { buildNativeConditional } from "../../../lib/capabilities/conditional-native";
 import { buildNativeSequence } from "../../../lib/capabilities/compound-native";
 import { buildNativePayload } from "../../../lib/capabilities/native-payload";
 import { resolveCapabilityRequest } from "../../../lib/capabilities/resolve";
@@ -55,6 +56,18 @@ export async function POST(request: Request) {
       messages: messages.length ? messages : [{ role: "user" as const, content: text }],
       deviceLocation: body.deviceLocation ?? null,
     };
+
+    const conditional = buildNativeConditional(text);
+    if (conditional) {
+      return NextResponse.json({
+        ok: true,
+        mode: "native_execute",
+        action: "conditional.execute",
+        capabilityId: "native.conditional",
+        input: text,
+        payload: { plan: JSON.stringify(conditional) },
+      });
+    }
 
     const sequence = buildNativeSequence(text);
     if (sequence) {
