@@ -32,7 +32,6 @@ final class NativeActionDispatcher {
     }
 
     typealias Handler = (NativeActionEnvelope) async -> Result
-
     private var handlers: [String: Handler] = [:]
 
     private init() { registerBuiltIns() }
@@ -78,7 +77,13 @@ final class NativeActionDispatcher {
             var branchPayload = plan.branch.payload
             var branchInput = plan.branch.input
             if let value = primaryResult.value {
-                let context = ["last.value": value, "primary.value": value]
+                var context = NativeResultContext.values(
+                    action: plan.primary.action,
+                    capabilityId: plan.primary.capabilityId,
+                    value: value
+                )
+                context["last.value"] = value
+                context["primary.value"] = value
                 branchPayload = self.resolveTemplates(branchPayload, context: context)
                 branchInput = self.resolveTemplates(branchInput, context: context)
             }
@@ -90,12 +95,7 @@ final class NativeActionDispatcher {
                 payload: branchPayload
             )
             let branchResult = await self.execute(branchEnvelope)
-            return Result(
-                handled: true,
-                succeeded: branchResult.succeeded,
-                reply: branchResult.reply,
-                value: branchResult.value
-            )
+            return Result(handled: true, succeeded: branchResult.succeeded, reply: branchResult.reply, value: branchResult.value)
         }
 
         register("sequence.execute") { envelope in
@@ -108,6 +108,7 @@ final class NativeActionDispatcher {
 
             var values: [String] = []
             var context: [String: String] = [:]
+
             for (index, step) in steps.enumerated() {
                 let resolvedInput = self.resolveTemplates(step.input, context: context)
                 let resolvedPayload = self.resolveTemplates(step.payload, context: context)
@@ -118,6 +119,7 @@ final class NativeActionDispatcher {
                     payload: resolvedPayload
                 )
                 let result = await self.execute(child)
+
                 if !result.handled || !result.succeeded {
                     return Result(
                         handled: true,
@@ -126,18 +128,25 @@ final class NativeActionDispatcher {
                         value: result.value
                     )
                 }
-                if let value = result.value {
-                    values.append(value)
-                    context["last.value"] = value
-                    context["step.\(index).value"] = value
-                    context["capability.\(step.capabilityId).value"] = value
-                    if step.capabilityId == "location.current" {
-                        context["location.current.value"] = value
-                        if let shareText = self.locationShareText(from: value) {
-                            context["location.current.share"] = shareText
-                            context["last.share"] = shareText
-                        }
-                    }
+
+                guard let value = result.value else { continue }
+                values.append(value)
+
+                let typed = NativeResultContext.values(
+                    action: step.action,
+                    capabilityId: step.capabilityId,
+                    value: value
+                )
+
+                context["last.value"] = value
+                context["step.\(index).value"] = value
+                context["capability.\(step.capabilityId).value"] = value
+
+                for (key, typedValue) in typed {
+                    context["last.\(key)"] = typedValue
+                    context["step.\(index).\(key)"] = typedValue
+                    context["capability.\(step.capabilityId).\(key)"] = typedValue
+                    context[key] = typedValue
                 }
             }
 
@@ -174,50 +183,33 @@ final class NativeActionDispatcher {
             let app = envelope.payload?["app"] ?? envelope.input ?? ""
             let outcome = await NativeDeviceActions.shared.openApp(named: app)
             switch outcome {
-            case .direct:
-                return Result(handled: true, succeeded: true, reply: "Abierto.", value: "direct")
-            case .webFallback:
-                return Result(handled: true, succeeded: true, reply: "Abierto.", value: "web_fallback")
-            case .failed:
-                return Result(handled: true, succeeded: false, reply: NativeDeviceActionError.appUnavailable.localizedDescription, value: nil)
+            case .direct: return Result(handled: true, succeeded: true, reply: "Abierto.", value: "direct")
+            case .webFallback: return Result(handled: true, succeeded: true, reply: "Abierto.", value: "web_fallback")
+            case .failed: return Result(handled: true, succeeded: false, reply: NativeDeviceActionError.appUnavailable.localizedDescription, value: nil)
             }
         }
 
         register("phone.call") { envelope in
             let target = envelope.payload?["target"] ?? envelope.input ?? ""
             let opened = await NativeDeviceActions.shared.call(target: target)
-            return Result(
-                handled: true,
-                succeeded: opened,
-                reply: opened ? "Llamada preparada." : NativeDeviceActionError.callUnavailable.localizedDescription,
-                value: nil
-            )
+            return Result(handled: true, succeeded: opened, reply: opened ? "Llamada preparada." : NativeDeviceActionError.callUnavailable.localizedDescription, value: nil)
         }
 
         register("messages.sms") { envelope in
             let target = envelope.payload?["target"] ?? ""
             let message = envelope.payload?["message"] ?? envelope.input
             let opened = await NativeDeviceActions.shared.composeSMS(target: target, message: message)
-            return Result(
-                handled: true,
-                succeeded: opened,
-                reply: opened ? "Mensaje preparado." : NativeDeviceActionError.smsUnavailable.localizedDescription,
-                value: nil
-            )
+            return Result(handled: true, succeeded: opened, reply: opened ? "Mensaje preparado." : NativeDeviceActionError.smsUnavailable.localizedDescription, value: nil)
         }
 
         register("media.play") { envelope in
             let query = envelope.payload?["query"] ?? envelope.input ?? ""
             let outcome = await NativeDeviceActions.shared.playMedia(query: query)
             switch outcome {
-            case .spotify:
-                return Result(handled: true, succeeded: true, reply: "Spotify abierto.", value: "spotify")
-            case .youtube:
-                return Result(handled: true, succeeded: true, reply: "YouTube abierto.", value: "youtube")
-            case .web:
-                return Result(handled: true, succeeded: true, reply: "Contenido abierto.", value: "web")
-            case .failed:
-                return Result(handled: true, succeeded: false, reply: NativeDeviceActionError.mediaUnavailable.localizedDescription, value: nil)
+            case .spotify: return Result(handled: true, succeeded: true, reply: "Spotify abierto.", value: "spotify")
+            case .youtube: return Result(handled: true, succeeded: true, reply: "YouTube abierto.", value: "youtube")
+            case .web: return Result(handled: true, succeeded: true, reply: "Contenido abierto.", value: "web")
+            case .failed: return Result(handled: true, succeeded: false, reply: NativeDeviceActionError.mediaUnavailable.localizedDescription, value: nil)
             }
         }
 
@@ -238,9 +230,7 @@ final class NativeActionDispatcher {
                 "phone.call": ["phone.tel"],
                 "messages.compose": ["messages.sms"],
             ]
-            for (key, routes) in NativeAppRegistry.shared.adaptiveExecutorGroups() {
-                groups[key] = routes
-            }
+            for (key, routes) in NativeAppRegistry.shared.adaptiveExecutorGroups() { groups[key] = routes }
             let preferred = NativeCapabilityLedger.shared.preferredExecutorsSnapshot(groups)
             let value = "{\"proven\":\(self.jsonArray(proven)),\"preferred\":\(self.jsonObject(preferred)),\"ledger\":\(ledger)}"
             return Result(handled: true, succeeded: true, reply: nil, value: value)
@@ -322,14 +312,6 @@ final class NativeActionDispatcher {
             resolved = resolved.replacingOccurrences(of: "{{\(key)}}", with: replacement)
         }
         return resolved
-    }
-
-    private func locationShareText(from value: String) -> String? {
-        guard let data = value.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let latitude = object["latitude"] as? Double,
-              let longitude = object["longitude"] as? Double else { return nil }
-        return "Mi ubicación: https://maps.apple.com/?ll=\(latitude),\(longitude)"
     }
 
     private func jsonArray(_ values: [String]) -> String {
