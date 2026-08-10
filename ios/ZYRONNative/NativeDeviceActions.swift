@@ -35,7 +35,20 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         let cleanTarget = target?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        if cleanTarget.isEmpty { return await openURLString("whatsapp://") }
+        if cleanTarget.isEmpty {
+            let routes = NativeCapabilityLedger.shared.orderedByReliability(["whatsapp.native", "whatsapp.web"])
+            for route in routes {
+                let opened: Bool
+                if route == "whatsapp.native" {
+                    opened = await openURLString("whatsapp://")
+                } else {
+                    opened = await openURLString("https://web.whatsapp.com/")
+                }
+                NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: opened)
+                if opened { return true }
+            }
+            return false
+        }
 
         let phone: String
         if cleanTarget.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
@@ -46,14 +59,45 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         }
 
         guard !phone.isEmpty else { return false }
-        var components = URLComponents()
-        components.scheme = "whatsapp"
-        components.host = "send"
-        var queryItems = [URLQueryItem(name: "phone", value: phone)]
-        if !cleanMessage.isEmpty { queryItems.append(URLQueryItem(name: "text", value: cleanMessage)) }
-        components.queryItems = queryItems
-        guard let url = components.url else { return false }
-        return await openURL(url)
+        let routes = NativeCapabilityLedger.shared.orderedByReliability(["whatsapp.native", "whatsapp.web"])
+        for route in routes {
+            let opened: Bool
+            if route == "whatsapp.native" {
+                var components = URLComponents()
+                components.scheme = "whatsapp"
+                components.host = "send"
+                var queryItems = [URLQueryItem(name: "phone", value: phone)]
+                if !cleanMessage.isEmpty { queryItems.append(URLQueryItem(name: "text", value: cleanMessage)) }
+                components.queryItems = queryItems
+                opened = components.url.map { url in
+                    Task { await self.openURL(url) }
+                    return true
+                } ?? false
+                if opened, let url = components.url {
+                    let actual = await openURL(url)
+                    NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: actual)
+                    if actual { return true }
+                    continue
+                }
+            } else {
+                var components = URLComponents(string: "https://wa.me/\(phone)")
+                if !cleanMessage.isEmpty {
+                    components?.queryItems = [URLQueryItem(name: "text", value: cleanMessage)]
+                }
+                opened = components?.url.map { url in
+                    Task { await self.openURL(url) }
+                    return true
+                } ?? false
+                if opened, let url = components?.url {
+                    let actual = await openURL(url)
+                    NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: actual)
+                    if actual { return true }
+                    continue
+                }
+            }
+            NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: false)
+        }
+        return false
     }
 
     /// Try the native integration first. If iOS/the target app refuses it, use
@@ -87,13 +131,51 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         }
 
         guard !resolvedDestination.isEmpty else { return false }
-        var components = URLComponents(string: "http://maps.apple.com/")
-        components?.queryItems = [
-            URLQueryItem(name: "daddr", value: resolvedDestination),
-            URLQueryItem(name: "dirflg", value: "d"),
-        ]
-        guard let url = components?.url else { return false }
-        return await openURL(url)
+
+        let routes = NativeCapabilityLedger.shared.orderedByReliability([
+            "navigation.apple_maps",
+            "navigation.google_maps",
+            "navigation.waze",
+        ])
+
+        for route in routes {
+            let url: URL?
+            switch route {
+            case "navigation.google_maps":
+                var components = URLComponents()
+                components.scheme = "comgooglemaps"
+                components.host = ""
+                components.queryItems = [
+                    URLQueryItem(name: "daddr", value: resolvedDestination),
+                    URLQueryItem(name: "directionsmode", value: "driving"),
+                ]
+                url = components.url
+            case "navigation.waze":
+                var components = URLComponents(string: "waze://")
+                components?.queryItems = [
+                    URLQueryItem(name: "q", value: resolvedDestination),
+                    URLQueryItem(name: "navigate", value: "yes"),
+                ]
+                url = components?.url
+            default:
+                var components = URLComponents(string: "http://maps.apple.com/")
+                components?.queryItems = [
+                    URLQueryItem(name: "daddr", value: resolvedDestination),
+                    URLQueryItem(name: "dirflg", value: "d"),
+                ]
+                url = components?.url
+            }
+
+            guard let url else {
+                NativeCapabilityLedger.shared.record(action: route, capabilityId: "maps.navigation", succeeded: false)
+                continue
+            }
+            let opened = await openURL(url)
+            NativeCapabilityLedger.shared.record(action: route, capabilityId: "maps.navigation", succeeded: opened)
+            if opened { return true }
+        }
+
+        return false
     }
 
     private func resolvePersonalDestination(_ place: String) async throws -> String {
