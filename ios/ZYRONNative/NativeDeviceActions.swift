@@ -9,6 +9,13 @@ enum NativeAppOpenResult: Equatable {
     case failed
 }
 
+enum NativeMediaHandoffResult: Equatable {
+    case spotify
+    case youtube
+    case web
+    case failed
+}
+
 @MainActor
 final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
     static let shared = NativeDeviceActions()
@@ -84,6 +91,48 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return false
     }
 
+    func call(target rawTarget: String) async -> Bool {
+        let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return false }
+
+        let phone: String
+        if target.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
+            phone = sanitizePhone(target)
+        } else {
+            do { phone = try await resolvePhoneNumber(for: target) }
+            catch { return false }
+        }
+        guard !phone.isEmpty, let url = URL(string: "tel:\(phone)") else { return false }
+        let opened = await openURL(url)
+        NativeCapabilityLedger.shared.record(action: "phone.tel", capabilityId: "phone.call", succeeded: opened)
+        return opened
+    }
+
+    func composeSMS(target rawTarget: String, message: String?) async -> Bool {
+        let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return false }
+
+        let phone: String
+        if target.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
+            phone = sanitizePhone(target)
+        } else {
+            do { phone = try await resolvePhoneNumber(for: target) }
+            catch { return false }
+        }
+
+        guard !phone.isEmpty else { return false }
+        var components = URLComponents()
+        components.scheme = "sms"
+        components.path = phone
+        if let message, !message.isEmpty {
+            components.queryItems = [URLQueryItem(name: "body", value: message)]
+        }
+        guard let url = components.url else { return false }
+        let opened = await openURL(url)
+        NativeCapabilityLedger.shared.record(action: "messages.sms", capabilityId: "messages.compose", succeeded: opened)
+        return opened
+    }
+
     /// Learns a preferred executor independently for every app. A successful
     /// native route or web fallback becomes more likely to be tried first next time.
     func openApp(named rawName: String) async -> NativeAppOpenResult {
@@ -98,11 +147,8 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         let routes = NativeCapabilityLedger.shared.orderedByReliability(availableRoutes)
         for route in routes {
             let rawURL: String?
-            if route == nativeRoute {
-                rawURL = candidate.launchURL
-            } else {
-                rawURL = candidate.webFallbackURL
-            }
+            if route == nativeRoute { rawURL = candidate.launchURL }
+            else { rawURL = candidate.webFallbackURL }
 
             guard let rawURL else {
                 NativeCapabilityLedger.shared.record(action: route, capabilityId: "apps.open", succeeded: false)
@@ -119,7 +165,47 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
                 return .webFallback
             }
         }
+        return .failed
+    }
 
+    func playMedia(query rawQuery: String) async -> NativeMediaHandoffResult {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return .failed }
+
+        let routes = NativeCapabilityLedger.shared.orderedByReliability([
+            "media.spotify",
+            "media.youtube",
+            "media.web",
+        ])
+
+        for route in routes {
+            let url: URL?
+            switch route {
+            case "media.spotify":
+                let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? query
+                url = URL(string: "spotify:search:\(encoded)")
+            case "media.youtube":
+                var components = URLComponents(string: "youtube://www.youtube.com/results")
+                components?.queryItems = [URLQueryItem(name: "search_query", value: query)]
+                url = components?.url
+            default:
+                var components = URLComponents(string: "https://www.youtube.com/results")
+                components?.queryItems = [URLQueryItem(name: "search_query", value: query)]
+                url = components?.url
+            }
+
+            guard let url else {
+                NativeCapabilityLedger.shared.record(action: route, capabilityId: "media.play", succeeded: false)
+                continue
+            }
+            let opened = await openURL(url)
+            NativeCapabilityLedger.shared.record(action: route, capabilityId: "media.play", succeeded: opened)
+            if opened {
+                if route == "media.spotify" { return .spotify }
+                if route == "media.youtube" { return .youtube }
+                return .web
+            }
+        }
         return .failed
     }
 
@@ -180,7 +266,6 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
             NativeCapabilityLedger.shared.record(action: route, capabilityId: "maps.navigation", succeeded: opened)
             if opened { return true }
         }
-
         return false
     }
 
@@ -272,6 +357,9 @@ enum NativeDeviceActionError: LocalizedError {
     case appUnavailable
     case urlUnavailable
     case navigationUnavailable
+    case callUnavailable
+    case smsUnavailable
+    case mediaUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -282,6 +370,9 @@ enum NativeDeviceActionError: LocalizedError {
         case .appUnavailable: return "No he podido abrir esa aplicación."
         case .urlUnavailable: return "No he podido abrir ese enlace o aplicación."
         case .navigationUnavailable: return "No he podido iniciar la navegación."
+        case .callUnavailable: return "No he podido preparar la llamada."
+        case .smsUnavailable: return "No he podido preparar el mensaje."
+        case .mediaUnavailable: return "No he podido abrir el contenido multimedia."
         }
     }
 }
