@@ -1,4 +1,5 @@
 import { decideAction } from "./action-policy";
+import { buildNativeSequence } from "./compound-native";
 import { buildNativePayload, type NativePayload } from "./native-payload";
 import { resolveCapabilityRequest } from "./resolve";
 
@@ -10,9 +11,9 @@ export type NativeConditionalStep = {
 };
 
 export type NativeConditionalPlan = {
-  primary: NativeConditionalStep;
+  primarySteps: NativeConditionalStep[];
   condition: "on_success" | "on_failure";
-  branch: NativeConditionalStep;
+  branchSteps: NativeConditionalStep[];
 };
 
 function stripWakeWord(value: string) {
@@ -33,10 +34,24 @@ function buildStep(clause: string): NativeConditionalStep | null {
   };
 }
 
+function buildSteps(clause: string): NativeConditionalStep[] | null {
+  const sequence = buildNativeSequence(clause);
+  if (sequence?.length) return sequence;
+  const step = buildStep(clause);
+  return step ? [step] : null;
+}
+
+function makePlan(primaryClause: string, condition: NativeConditionalPlan["condition"], branchClause: string) {
+  const primarySteps = buildSteps(primaryClause);
+  const branchSteps = buildSteps(branchClause);
+  if (!primarySteps?.length || !branchSteps?.length) return null;
+  return { primarySteps, condition, branchSteps } satisfies NativeConditionalPlan;
+}
+
 /**
- * Supports conditions ZYRON can actually observe: whether the preceding native
- * action succeeded or failed. It intentionally does not claim to observe
- * external app state such as whether a person answered a phone call.
+ * Supports only conditions ZYRON can actually observe: whether the preceding
+ * native action or sequence succeeded or failed. It intentionally does not
+ * claim to observe external state such as whether a person answered a call.
  */
 export function buildNativeConditional(input: string): NativeConditionalPlan | null {
   const clean = stripWakeWord(input);
@@ -48,9 +63,8 @@ export function buildNativeConditional(input: string): NativeConditionalPlan | n
   for (const pattern of failurePatterns) {
     const match = clean.match(pattern);
     if (!match?.[1] || !match?.[2]) continue;
-    const primary = buildStep(match[1]);
-    const branch = buildStep(match[2]);
-    if (primary && branch) return { primary, condition: "on_failure", branch };
+    const plan = makePlan(match[1], "on_failure", match[2]);
+    if (plan) return plan;
   }
 
   const successPatterns = [
@@ -59,9 +73,8 @@ export function buildNativeConditional(input: string): NativeConditionalPlan | n
   for (const pattern of successPatterns) {
     const match = clean.match(pattern);
     if (!match?.[1] || !match?.[2]) continue;
-    const primary = buildStep(match[1]);
-    const branch = buildStep(match[2]);
-    if (primary && branch) return { primary, condition: "on_success", branch };
+    const plan = makePlan(match[1], "on_success", match[2]);
+    if (plan) return plan;
   }
 
   return null;
