@@ -54,6 +54,7 @@ function extractSMS(input: string): NativePayload {
   const messagePatterns = [
     /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
     /(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
+    /(?:mandasela|mándasela|enviasela|envíasela|compartela|compártela)\s+(?:por\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+)$/i,
   ];
   for (const pattern of messagePatterns) {
     const match = clean.match(pattern);
@@ -118,6 +119,8 @@ function extractWhatsAppTarget(input: string): NativePayload {
   const messagePatterns = [
     /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
     /(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
+    /(?:mandasela|mándasela|enviasela|envíasela|compartela|compártela)\s+(?:por\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+)$/i,
+    /(?:manda|envia|envía|comparte)\s+(?:mi|esa|la)\s+ubicaci[oó]n\s+(?:por\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+)$/i,
   ];
   for (const pattern of messagePatterns) {
     const match = clean.match(pattern);
