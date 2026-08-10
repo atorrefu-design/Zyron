@@ -54,7 +54,6 @@ function extractSMS(input: string): NativePayload {
   const messagePatterns = [
     /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
     /(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
-    /(?:mandasela|mándasela|enviasela|envíasela|compartela|compártela)\s+(?:por\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+)$/i,
   ];
   for (const pattern of messagePatterns) {
     const match = clean.match(pattern);
@@ -62,6 +61,17 @@ function extractSMS(input: string): NativePayload {
     if (match?.[2]) payload.message = cleanValue(match[2]);
     if (payload.target) return payload;
   }
+
+  const previousLocation = clean.match(/(?:mandasela|mándasela|enviasela|envíasela|compartela|compártela|manda|envia|envía|comparte)\s+(?:(?:mi|esa|la)\s+ubicaci[oó]n|eso|eso mismo|el resultado)\s+(?:por\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+)$/i);
+  if (previousLocation?.[1]) {
+    return {
+      target: cleanValue(previousLocation[1]),
+      message: /ubicaci[oó]n/i.test(clean) ? "{{last.share}}" : "{{last.value}}",
+    };
+  }
+
+  const pronoun = clean.match(/(?:mandasela|mándasela|enviasela|envíasela|compartela|compártela)\s+(?:por\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+)$/i);
+  if (pronoun?.[1]) return { target: cleanValue(pronoun[1]), message: "{{last.share}}" };
 
   const targetOnly = clean.match(/(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:sms|mensaje(?:\s+de\s+texto)?)\s+(?:a|para)\s+(.+)$/i);
   if (targetOnly?.[1]) payload.target = cleanValue(targetOnly[1]);
@@ -108,6 +118,9 @@ function extractReminder(input: string): NativePayload {
     if (body) payload.body = body;
   }
 
+  if (/^(eso|eso mismo|el resultado|lo anterior)$/i.test(payload.body ?? "")) payload.body = "{{last.value}}";
+  if (/^(mi ubicaci[oó]n|esa ubicaci[oó]n|la ubicaci[oó]n)$/i.test(payload.body ?? "")) payload.body = "{{last.share}}";
+
   payload.title = "ZYRON";
   return payload;
 }
@@ -119,14 +132,22 @@ function extractWhatsAppTarget(input: string): NativePayload {
   const messagePatterns = [
     /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
     /(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
-    /(?:mandasela|mándasela|enviasela|envíasela|compartela|compártela)\s+(?:por\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+)$/i,
-    /(?:manda|envia|envía|comparte)\s+(?:mi|esa|la)\s+ubicaci[oó]n\s+(?:por\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+)$/i,
   ];
   for (const pattern of messagePatterns) {
     const match = clean.match(pattern);
     if (match?.[1]) payload.target = cleanValue(match[1]);
     if (match?.[2]) payload.message = cleanValue(match[2]);
     if (payload.target) return payload;
+  }
+
+  const previousResult = clean.match(/(?:manda|envia|envía|comparte|mandasela|mándasela|enviasela|envíasela|compartela|compártela)\s+(?:(?:mi|esa|la)\s+ubicaci[oó]n|eso|eso mismo|el resultado)?\s*(?:por\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+)$/i);
+  if (previousResult?.[1]) {
+    return {
+      target: cleanValue(previousResult[1]),
+      message: /ubicaci[oó]n|mandasela|mándasela|enviasela|envíasela|compartela|compártela/i.test(clean)
+        ? "{{last.share}}"
+        : "{{last.value}}",
+    };
   }
 
   const targetPatterns = [
@@ -156,6 +177,7 @@ export function buildNativePayload(action: string, input: string): NativePayload
       const normalized = normalize(destination);
       if (["casa", "mi casa", "hogar"].includes(normalized)) return { destination, personalPlace: "home" };
       if (["trabajo", "mi trabajo", "oficina", "la oficina"].includes(normalized)) return { destination, personalPlace: "work" };
+      if (["eso", "esa ubicacion", "esa ubicación", "el resultado"].includes(normalized)) return { destination: "{{last.value}}" };
       return { destination };
     }
     case "app.open": {
