@@ -84,21 +84,33 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return false
     }
 
-    /// App launches learn whether the native URL scheme or a safe web fallback
-    /// is more reliable on this particular iPhone and try the proven route first.
+    /// Learns a preferred executor independently for every app. A successful
+    /// native route or web fallback becomes more likely to be tried first next time.
     func openApp(named rawName: String) async -> NativeAppOpenResult {
         guard let candidate = NativeAppRegistry.shared.candidate(named: rawName) else { return .failed }
-        let key = normalize(candidate.canonicalName).replacingOccurrences(of: " ", with: "_")
-        let nativeRoute = "app.\(key).native"
-        let webRoute = "app.\(key).web"
-        let availableRoutes = candidate.webFallbackURL == nil ? [nativeRoute] : [nativeRoute, webRoute]
-        let routes = NativeCapabilityLedger.shared.orderedByReliability(availableRoutes)
 
+        let appKey = normalize(candidate.canonicalName).replacingOccurrences(of: " ", with: "_")
+        let nativeRoute = "app.\(appKey).native"
+        let webRoute = "app.\(appKey).web"
+        var availableRoutes = [nativeRoute]
+        if candidate.webFallbackURL != nil { availableRoutes.append(webRoute) }
+
+        let routes = NativeCapabilityLedger.shared.orderedByReliability(availableRoutes)
         for route in routes {
-            let target = route == nativeRoute ? candidate.launchURL : candidate.webFallbackURL
-            guard let target else { continue }
-            let opened = await openURLString(target)
-            NativeCapabilityLedger.shared.record(action: route, capabilityId: "apps.launch", succeeded: opened)
+            let rawURL: String?
+            if route == nativeRoute {
+                rawURL = candidate.launchURL
+            } else {
+                rawURL = candidate.webFallbackURL
+            }
+
+            guard let rawURL else {
+                NativeCapabilityLedger.shared.record(action: route, capabilityId: "apps.open", succeeded: false)
+                continue
+            }
+
+            let opened = await openURLString(rawURL)
+            NativeCapabilityLedger.shared.record(action: route, capabilityId: "apps.open", succeeded: opened)
             if opened {
                 if route == nativeRoute {
                     NativeAppRegistry.shared.recordSuccessfulLaunch(candidate)
