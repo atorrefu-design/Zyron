@@ -57,22 +57,74 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return await openURL(url)
     }
 
+    func openApp(named rawName: String) async -> Bool {
+        let name = normalize(rawName)
+        let schemes: [String: String] = [
+            "whatsapp": "whatsapp://",
+            "spotify": "spotify://",
+            "youtube": "youtube://",
+            "google maps": "comgooglemaps://",
+            "maps": "http://maps.apple.com/",
+            "mapas": "http://maps.apple.com/",
+            "telegram": "tg://",
+        ]
+
+        guard let target = schemes[name] else { return false }
+        return await openURLString(target)
+    }
+
     func openURLString(_ rawURL: String) async -> Bool {
         guard let url = URL(string: rawURL), url.scheme != nil else { return false }
         return await openURL(url)
     }
 
-    func startNavigation(to destination: String) async -> Bool {
-        let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
+    func startNavigation(to destination: String, personalPlace: String? = nil) async -> Bool {
+        var resolvedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let personalPlace, !personalPlace.isEmpty {
+            do {
+                resolvedDestination = try await resolvePersonalDestination(personalPlace)
+            } catch {
+                return false
+            }
+        }
+
+        guard !resolvedDestination.isEmpty else { return false }
 
         var components = URLComponents(string: "http://maps.apple.com/")
         components?.queryItems = [
-            URLQueryItem(name: "daddr", value: trimmed),
+            URLQueryItem(name: "daddr", value: resolvedDestination),
             URLQueryItem(name: "dirflg", value: "d"),
         ]
         guard let url = components?.url else { return false }
         return await openURL(url)
+    }
+
+    private func resolvePersonalDestination(_ place: String) async throws -> String {
+        try await NativePermissionGate.shared.run(requiring: .contacts) {
+            let store = CNContactStore()
+            let keys = [CNContactPostalAddressesKey] as [CNKeyDescriptor]
+            let me = try store.unifiedMeContactWithKeys(toFetch: keys)
+            let wanted = self.normalize(place)
+
+            let match = me.postalAddresses.first { labeled in
+                let label = self.normalize(CNLabeledValue<NSString>.localizedString(forLabel: labeled.label ?? ""))
+                if wanted == "home" { return label.contains("casa") || label.contains("home") }
+                if wanted == "work" { return label.contains("trabajo") || label.contains("work") }
+                return false
+            }
+
+            guard let address = match?.value else {
+                throw NativeDeviceActionError.personalPlaceUnavailable
+            }
+            let formatted = CNPostalAddressFormatter.string(from: address, style: .mailingAddress)
+                .replacingOccurrences(of: "\n", with: ", ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !formatted.isEmpty else {
+                throw NativeDeviceActionError.personalPlaceUnavailable
+            }
+            return formatted
+        }
     }
 
     private func resolvePhoneNumber(for name: String) async throws -> String {
@@ -144,6 +196,8 @@ enum NativeDeviceActionError: LocalizedError {
     case locationUnavailable
     case whatsappUnavailable
     case contactPhoneUnavailable
+    case personalPlaceUnavailable
+    case appUnavailable
     case urlUnavailable
     case navigationUnavailable
 
@@ -155,6 +209,10 @@ enum NativeDeviceActionError: LocalizedError {
             return "No he podido abrir WhatsApp en este iPhone."
         case .contactPhoneUnavailable:
             return "No he encontrado un número de teléfono utilizable para ese contacto."
+        case .personalPlaceUnavailable:
+            return "No he encontrado esa dirección personal en tu ficha de contacto."
+        case .appUnavailable:
+            return "No he podido abrir esa aplicación."
         case .urlUnavailable:
             return "No he podido abrir ese enlace o aplicación."
         case .navigationUnavailable:
