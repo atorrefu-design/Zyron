@@ -32,40 +32,74 @@ function splitSequentialClauses(input: string): string[] {
     .filter(Boolean);
 }
 
+function refersToPriorResult(input: string) {
+  const text = normalize(input);
+  return [
+    "eso",
+    "ese resultado",
+    "el resultado",
+    "esa ubicacion",
+    "la ubicacion",
+    "mi ubicacion",
+    "ubicacion actual",
+    "ese archivo",
+    "el archivo",
+    "esa grabacion",
+    "la grabacion",
+    "mandaselo",
+    "mandasela",
+    "enviaselo",
+    "enviasela",
+    "compartelo",
+    "compartela",
+  ].some((token) => text.includes(token));
+}
+
+/**
+ * Connects a later action to the most useful representation of the preceding
+ * typed result. The iPhone decides at runtime whether result.best means a share
+ * link, a file URL, text, an identifier, etc.
+ */
 function wireResultReferences(steps: NativeSequenceStep[]) {
-  let lastLocationStep = -1;
+  let hasPriorResult = false;
 
-  return steps.map((step, index) => {
+  return steps.map((step) => {
     const next = { ...step, payload: { ...step.payload } };
-    if (step.resultType === "location") {
-      lastLocationStep = index;
-      return next;
+
+    if (hasPriorResult && refersToPriorResult(step.input)) {
+      const best = "{{result.best}}";
+      switch (step.action) {
+        case "open_whatsapp_target":
+        case "messages.sms": {
+          const existing = next.payload.message?.trim();
+          next.payload.message = existing && !existing.includes("{{")
+            ? `${existing} ${best}`
+            : best;
+          next.payload.source = "previous_result";
+          break;
+        }
+        case "navigation.start":
+          next.payload.destination = "{{result.destination}}";
+          next.payload.source = "previous_result";
+          break;
+        case "schedule_native_notification": {
+          const existing = next.payload.body?.trim();
+          next.payload.body = existing && !existing.includes("{{")
+            ? `${existing} ${best}`
+            : best;
+          next.payload.source = "previous_result";
+          break;
+        }
+        case "open_url":
+          next.payload.url = best;
+          next.payload.source = "previous_result";
+          break;
+        default:
+          break;
+      }
     }
 
-    if (lastLocationStep < 0) return next;
-    const text = normalize(step.input);
-    const refersToLocation = [
-      "mi ubicacion",
-      "esa ubicacion",
-      "la ubicacion",
-      "ubicacion actual",
-      "mandasela",
-      "enviasela",
-      "compartela",
-    ].some((token) => text.includes(token));
-
-    if (!refersToLocation) return next;
-
-    if (step.action === "open_whatsapp_target" || step.action === "messages.sms") {
-      const existing = next.payload.message?.trim();
-      const locationToken = "{{location.current.share}}";
-      next.payload.message = existing && !existing.includes("{{")
-        ? `${existing} ${locationToken}`
-        : locationToken;
-      next.payload.sourceStep = String(lastLocationStep);
-      next.payload.sourceType = "location";
-    }
-
+    if (step.resultType !== "unknown") hasPriorResult = true;
     return next;
   });
 }
