@@ -48,16 +48,9 @@ final class NativeActionDispatcher {
     }
 
     private func registerBuiltIns() {
-        register("recording.start") { _ in
-            await self.startRecording()
-        }
+        register("recording.start") { _ in await self.startRecording() }
+        register("recording.stop") { _ in self.stopRecording() }
 
-        register("recording.stop") { _ in
-            self.stopRecording()
-        }
-
-        // Cloud capability currently emits one generic recording action. Resolve
-        // start/stop locally from the original natural-language input.
         register("recording_control") { envelope in
             let input = self.normalize(envelope.input ?? "")
             if ["deja de grabar", "para de grabar", "deten la grabacion", "termina de grabar", "finaliza la grabacion"]
@@ -67,9 +60,7 @@ final class NativeActionDispatcher {
             return await self.startRecording()
         }
 
-        register("permissions.bootstrap") { _ in
-            await self.bootstrapPermissions()
-        }
+        register("permissions.bootstrap") { _ in await self.bootstrapPermissions() }
 
         register("get_current_location") { _ in
             do {
@@ -89,6 +80,46 @@ final class NativeActionDispatcher {
                 reply: opened ? "WhatsApp abierto." : NativeDeviceActionError.whatsappUnavailable.localizedDescription,
                 value: nil
             )
+        }
+
+        register("open_url") { envelope in
+            guard let rawURL = envelope.payload?["url"] ?? envelope.input, !rawURL.isEmpty else {
+                return Result(handled: true, succeeded: false, reply: "Falta el enlace que debo abrir.", value: nil)
+            }
+            let opened = await NativeDeviceActions.shared.openURLString(rawURL)
+            return Result(
+                handled: true,
+                succeeded: opened,
+                reply: opened ? "Abierto." : NativeDeviceActionError.urlUnavailable.localizedDescription,
+                value: nil
+            )
+        }
+
+        register("navigation.start") { envelope in
+            let destination = envelope.payload?["destination"] ?? envelope.input ?? ""
+            let opened = await NativeDeviceActions.shared.startNavigation(to: destination)
+            return Result(
+                handled: true,
+                succeeded: opened,
+                reply: opened ? "Navegación iniciada." : NativeDeviceActionError.navigationUnavailable.localizedDescription,
+                value: nil
+            )
+        }
+
+        register("schedule_native_notification") { envelope in
+            let title = envelope.payload?["title"] ?? "ZYRON"
+            let body = envelope.payload?["body"] ?? envelope.input ?? ""
+            let seconds = TimeInterval(envelope.payload?["afterSeconds"] ?? "1") ?? 1
+            do {
+                let identifier = try await NativeNotificationActions.shared.schedule(
+                    title: title,
+                    body: body,
+                    after: seconds
+                )
+                return Result(handled: true, succeeded: true, reply: "Aviso programado.", value: identifier)
+            } catch {
+                return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
+            }
         }
     }
 
