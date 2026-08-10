@@ -22,13 +22,9 @@ final class NativeActionDispatcher {
 
     private var handlers: [String: Handler] = [:]
 
-    private init() {
-        registerBuiltIns()
-    }
+    private init() { registerBuiltIns() }
 
-    func register(_ action: String, handler: @escaping Handler) {
-        handlers[action] = handler
-    }
+    func register(_ action: String, handler: @escaping Handler) { handlers[action] = handler }
 
     func execute(_ envelope: NativeActionEnvelope) async -> Result {
         guard let handler = handlers[envelope.action] else {
@@ -37,11 +33,7 @@ final class NativeActionDispatcher {
         }
 
         let result = await handler(envelope)
-        NativeCapabilityLedger.shared.record(
-            action: envelope.action,
-            capabilityId: envelope.capabilityId,
-            succeeded: result.succeeded
-        )
+        NativeCapabilityLedger.shared.record(action: envelope.action, capabilityId: envelope.capabilityId, succeeded: result.succeeded)
         WakeWordDiagnostics.shared.record(
             result.succeeded ? "native_action_succeeded" : "native_action_failed",
             detail: "\(envelope.action); capability=\(envelope.capabilityId ?? "unknown")"
@@ -56,10 +48,8 @@ final class NativeActionDispatcher {
         register("recording_control") { envelope in
             if envelope.payload?["command"] == "stop" { return self.stopRecording() }
             if envelope.payload?["command"] == "start" { return await self.startRecording() }
-
             let input = self.normalize(envelope.input ?? "")
-            if ["deja de grabar", "para de grabar", "deten la grabacion", "termina de grabar", "finaliza la grabacion"]
-                .contains(where: input.contains) {
+            if ["deja de grabar", "para de grabar", "deten la grabacion", "termina de grabar", "finaliza la grabacion"].contains(where: input.contains) {
                 return self.stopRecording()
             }
             return await self.startRecording()
@@ -79,13 +69,15 @@ final class NativeActionDispatcher {
 
         register("app.open") { envelope in
             let app = envelope.payload?["app"] ?? envelope.input ?? ""
-            let opened = await NativeDeviceActions.shared.openApp(named: app)
-            return Result(
-                handled: true,
-                succeeded: opened,
-                reply: opened ? "Abierto." : NativeDeviceActionError.appUnavailable.localizedDescription,
-                value: nil
-            )
+            let outcome = await NativeDeviceActions.shared.openApp(named: app)
+            switch outcome {
+            case .direct:
+                return Result(handled: true, succeeded: true, reply: "Abierto.", value: "direct")
+            case .webFallback:
+                return Result(handled: true, succeeded: true, reply: "Abierto.", value: "web_fallback")
+            case .failed:
+                return Result(handled: true, succeeded: false, reply: NativeDeviceActionError.appUnavailable.localizedDescription, value: nil)
+            }
         }
 
         register("apps.learned") { _ in
@@ -110,12 +102,8 @@ final class NativeActionDispatcher {
             if opened {
                 if let target, !target.isEmpty {
                     reply = message?.isEmpty == false ? "Chat de WhatsApp preparado." : "Chat de WhatsApp abierto."
-                } else {
-                    reply = "WhatsApp abierto."
-                }
-            } else {
-                reply = NativeDeviceActionError.whatsappUnavailable.localizedDescription
-            }
+                } else { reply = "WhatsApp abierto." }
+            } else { reply = NativeDeviceActionError.whatsappUnavailable.localizedDescription }
             return Result(handled: true, succeeded: opened, reply: reply, value: nil)
         }
 
@@ -124,24 +112,14 @@ final class NativeActionDispatcher {
                 return Result(handled: true, succeeded: false, reply: "Falta el enlace que debo abrir.", value: nil)
             }
             let opened = await NativeDeviceActions.shared.openURLString(rawURL)
-            return Result(
-                handled: true,
-                succeeded: opened,
-                reply: opened ? "Abierto." : NativeDeviceActionError.urlUnavailable.localizedDescription,
-                value: nil
-            )
+            return Result(handled: true, succeeded: opened, reply: opened ? "Abierto." : NativeDeviceActionError.urlUnavailable.localizedDescription, value: nil)
         }
 
         register("navigation.start") { envelope in
             let destination = envelope.payload?["destination"] ?? envelope.input ?? ""
             let personalPlace = envelope.payload?["personalPlace"]
             let opened = await NativeDeviceActions.shared.startNavigation(to: destination, personalPlace: personalPlace)
-            return Result(
-                handled: true,
-                succeeded: opened,
-                reply: opened ? "Navegación iniciada." : NativeDeviceActionError.navigationUnavailable.localizedDescription,
-                value: nil
-            )
+            return Result(handled: true, succeeded: opened, reply: opened ? "Navegación iniciada." : NativeDeviceActionError.navigationUnavailable.localizedDescription, value: nil)
         }
 
         register("schedule_native_notification") { envelope in
@@ -149,11 +127,7 @@ final class NativeActionDispatcher {
             let body = envelope.payload?["body"] ?? envelope.input ?? ""
             let seconds = TimeInterval(envelope.payload?["afterSeconds"] ?? "1") ?? 1
             do {
-                let identifier = try await NativeNotificationActions.shared.schedule(
-                    title: title,
-                    body: body,
-                    after: seconds
-                )
+                let identifier = try await NativeNotificationActions.shared.schedule(title: title, body: body, after: seconds)
                 return Result(handled: true, succeeded: true, reply: "Aviso programado.", value: identifier)
             } catch {
                 return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
@@ -163,27 +137,16 @@ final class NativeActionDispatcher {
 
     private func startRecording() async -> Result {
         do {
-            let url = try await NativePermissionGate.shared.run(requiring: .microphone) {
-                try await NativeRecordingController.shared.start()
-            }
+            let url = try await NativePermissionGate.shared.run(requiring: .microphone) { try await NativeRecordingController.shared.start() }
             return Result(handled: true, succeeded: true, reply: "Grabando.", value: url.path)
-        } catch {
-            return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
-        }
+        } catch { return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil) }
     }
 
     private func stopRecording() -> Result {
         do {
             let url = try NativeRecordingController.shared.stop()
-            return Result(
-                handled: true,
-                succeeded: true,
-                reply: url == nil ? "No estaba grabando." : "Grabación guardada.",
-                value: url?.path
-            )
-        } catch {
-            return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
-        }
+            return Result(handled: true, succeeded: true, reply: url == nil ? "No estaba grabando." : "Grabación guardada.", value: url?.path)
+        } catch { return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil) }
     }
 
     private func bootstrapPermissions() async -> Result {
@@ -192,26 +155,17 @@ final class NativeActionDispatcher {
             return Result(handled: true, succeeded: true, reply: "Permisos configurados.", value: nil)
         }
         if !snapshot.denied.isEmpty {
-            return Result(
-                handled: true,
-                succeeded: false,
-                reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.",
-                value: nil
-            )
+            return Result(handled: true, succeeded: false, reply: "He configurado los permisos disponibles. Algunos siguen bloqueados en Ajustes.", value: nil)
         }
         return Result(handled: true, succeeded: true, reply: "He iniciado la configuración de permisos.", value: nil)
     }
 
     private func jsonArray(_ values: [String]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: values),
-              let json = String(data: data, encoding: .utf8) else { return "[]" }
+        guard let data = try? JSONSerialization.data(withJSONObject: values), let json = String(data: data, encoding: .utf8) else { return "[]" }
         return json
     }
 
     private func normalize(_ value: String) -> String {
-        value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es_ES"))
-            .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es_ES")).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
