@@ -90,7 +90,11 @@ final class NativeActionDispatcher {
         register("capabilities.learned") { _ in
             let proven = NativeCapabilityLedger.shared.provenActions()
             let ledger = NativeCapabilityLedger.shared.snapshotJSON()
-            let value = "{\"proven\":\(self.jsonArray(proven)),\"ledger\":\(ledger)}"
+            let preferred = NativeCapabilityLedger.shared.preferredExecutorsSnapshot([
+                "maps.navigation": ["navigation.apple_maps", "navigation.google_maps", "navigation.waze"],
+                "whatsapp.handoff": ["whatsapp.native", "whatsapp.web"],
+            ])
+            let value = "{\"proven\":\(self.jsonArray(proven)),\"preferred\":\(self.jsonObject(preferred)),\"ledger\":\(ledger)}"
             return Result(handled: true, succeeded: true, reply: nil, value: value)
         }
 
@@ -162,6 +166,11 @@ final class NativeActionDispatcher {
 
     private func jsonArray(_ values: [String]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: values), let json = String(data: data, encoding: .utf8) else { return "[]" }
+        return json
+    }
+
+    private func jsonObject(_ value: [String: String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value), let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
     }
 
