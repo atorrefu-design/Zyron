@@ -84,18 +84,28 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return false
     }
 
-    /// Try the native integration first. If iOS/the target app refuses it, use
-    /// a safe web equivalent automatically instead of making the user retry.
+    /// App launches learn whether the native URL scheme or a safe web fallback
+    /// is more reliable on this particular iPhone and try the proven route first.
     func openApp(named rawName: String) async -> NativeAppOpenResult {
         guard let candidate = NativeAppRegistry.shared.candidate(named: rawName) else { return .failed }
+        let key = normalize(candidate.canonicalName).replacingOccurrences(of: " ", with: "_")
+        let nativeRoute = "app.\(key).native"
+        let webRoute = "app.\(key).web"
+        let availableRoutes = candidate.webFallbackURL == nil ? [nativeRoute] : [nativeRoute, webRoute]
+        let routes = NativeCapabilityLedger.shared.orderedByReliability(availableRoutes)
 
-        if await openURLString(candidate.launchURL) {
-            NativeAppRegistry.shared.recordSuccessfulLaunch(candidate)
-            return .direct
-        }
-
-        if let fallback = candidate.webFallbackURL, await openURLString(fallback) {
-            return .webFallback
+        for route in routes {
+            let target = route == nativeRoute ? candidate.launchURL : candidate.webFallbackURL
+            guard let target else { continue }
+            let opened = await openURLString(target)
+            NativeCapabilityLedger.shared.record(action: route, capabilityId: "apps.launch", succeeded: opened)
+            if opened {
+                if route == nativeRoute {
+                    NativeAppRegistry.shared.recordSuccessfulLaunch(candidate)
+                    return .direct
+                }
+                return .webFallback
+            }
         }
 
         return .failed
