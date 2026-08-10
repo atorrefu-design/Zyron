@@ -90,10 +90,14 @@ final class NativeActionDispatcher {
         register("capabilities.learned") { _ in
             let proven = NativeCapabilityLedger.shared.provenActions()
             let ledger = NativeCapabilityLedger.shared.snapshotJSON()
-            let preferred = NativeCapabilityLedger.shared.preferredExecutorsSnapshot([
+            var groups: [String: [String]] = [
                 "maps.navigation": ["navigation.apple_maps", "navigation.google_maps", "navigation.waze"],
                 "whatsapp.handoff": ["whatsapp.native", "whatsapp.web"],
-            ])
+            ]
+            for (key, routes) in NativeAppRegistry.shared.adaptiveExecutorGroups() {
+                groups[key] = routes
+            }
+            let preferred = NativeCapabilityLedger.shared.preferredExecutorsSnapshot(groups)
             let value = "{\"proven\":\(self.jsonArray(proven)),\"preferred\":\(self.jsonObject(preferred)),\"ledger\":\(ledger)}"
             return Result(handled: true, succeeded: true, reply: nil, value: value)
         }
