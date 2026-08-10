@@ -53,6 +53,23 @@ final class NativeAppRegistry {
         catalog.map(\.canonicalName).sorted()
     }
 
+    /// Diagnostic groups for the adaptive executor. This lets ZYRON report
+    /// the preferred route for each known app instead of only for broad domains.
+    func adaptiveExecutorGroups() -> [String: [String]] {
+        var groups: [String: [String]] = [:]
+        for candidate in catalog {
+            let key = routeKey(candidate.canonicalName)
+            var routes = ["app.\(key).native"]
+            if candidate.webFallbackURL != nil { routes.append("app.\(key).web") }
+            groups["apps.open.\(candidate.canonicalName)"] = routes
+        }
+        return groups
+    }
+
+    private func routeKey(_ value: String) -> String {
+        normalize(value).replacingOccurrences(of: " ", with: "_")
+    }
+
     private func learnedCanonicalNames() -> Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: learnedKey) ?? [])
     }
