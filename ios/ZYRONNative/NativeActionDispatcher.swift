@@ -7,6 +7,13 @@ struct NativeActionEnvelope: Codable, Equatable {
     let payload: [String: String]?
 }
 
+private struct NativeSequenceStep: Codable {
+    let action: String
+    let capabilityId: String
+    let input: String
+    let payload: [String: String]
+}
+
 @MainActor
 final class NativeActionDispatcher {
     static let shared = NativeActionDispatcher()
@@ -42,6 +49,38 @@ final class NativeActionDispatcher {
     }
 
     private func registerBuiltIns() {
+        register("sequence.execute") { envelope in
+            guard let raw = envelope.payload?["steps"],
+                  let data = raw.data(using: .utf8),
+                  let steps = try? JSONDecoder().decode([NativeSequenceStep].self, from: data),
+                  !steps.isEmpty else {
+                return Result(handled: true, succeeded: false, reply: "No he podido interpretar la secuencia.", value: nil)
+            }
+
+            var values: [String] = []
+            for step in steps {
+                let child = NativeActionEnvelope(
+                    action: step.action,
+                    input: step.input,
+                    capabilityId: step.capabilityId,
+                    payload: step.payload
+                )
+                let result = await self.execute(child)
+                if !result.handled || !result.succeeded {
+                    return Result(
+                        handled: true,
+                        succeeded: false,
+                        reply: result.reply ?? "Una de las acciones no se ha podido completar.",
+                        value: result.value
+                    )
+                }
+                if let value = result.value { values.append(value) }
+            }
+
+            let value = values.isEmpty ? nil : self.jsonArray(values)
+            return Result(handled: true, succeeded: true, reply: "Hecho.", value: value)
+        }
+
         register("recording.start") { _ in await self.startRecording() }
         register("recording.stop") { _ in self.stopRecording() }
 
