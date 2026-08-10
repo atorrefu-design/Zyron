@@ -56,13 +56,37 @@ function extractReminder(input: string): NativePayload {
 
 function extractWhatsAppTarget(input: string): NativePayload {
   const clean = stripWakeWord(input);
-  const match = clean.match(/(?:whatsapp|whatsap|watsap)(?:\s+(?:a|con|de))?\s+(.+)$/i);
-  if (!match?.[1]) return {};
-  const target = match[1]
-    .replace(/^(abre|abrir|escribe|mensaje|chat)\s+/i, "")
-    .trim()
-    .replace(/[.!?]+$/, "");
-  return target ? { target } : {};
+  const payload: NativePayload = {};
+
+  const messagePatterns = [
+    /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
+    /(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
+  ];
+  for (const pattern of messagePatterns) {
+    const match = clean.match(pattern);
+    if (match?.[1]) payload.target = match[1].trim().replace(/[.!?]+$/, "");
+    if (match?.[2]) payload.message = match[2].trim().replace(/^['“"]|['”"]$/g, "").trim();
+    if (payload.target) return payload;
+  }
+
+  const targetPatterns = [
+    /(?:abre|abrir)\s+(?:el\s+)?(?:chat\s+de\s+)?(?:whatsapp\s+(?:de|con)\s+)?(.+)$/i,
+    /(?:whatsapp|whatsap|watsap)(?:\s+(?:a|con|de))?\s+(.+)$/i,
+  ];
+  for (const pattern of targetPatterns) {
+    const match = clean.match(pattern);
+    if (!match?.[1]) continue;
+    const target = match[1]
+      .replace(/^(abre|abrir|escribe|mensaje|chat)\s+/i, "")
+      .trim()
+      .replace(/[.!?]+$/, "");
+    if (target) {
+      payload.target = target;
+      return payload;
+    }
+  }
+
+  return payload;
 }
 
 export function buildNativePayload(action: string, input: string): NativePayload {
