@@ -35,67 +35,51 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         let cleanTarget = target?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        if cleanTarget.isEmpty {
-            let routes = NativeCapabilityLedger.shared.orderedByReliability(["whatsapp.native", "whatsapp.web"])
-            for route in routes {
-                let opened: Bool
-                if route == "whatsapp.native" {
-                    opened = await openURLString("whatsapp://")
-                } else {
-                    opened = await openURLString("https://web.whatsapp.com/")
-                }
-                NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: opened)
-                if opened { return true }
+        var phone = ""
+        if !cleanTarget.isEmpty {
+            if cleanTarget.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
+                phone = sanitizePhone(cleanTarget)
+            } else {
+                do { phone = try await resolvePhoneNumber(for: cleanTarget) }
+                catch { return false }
             }
-            return false
+            guard !phone.isEmpty else { return false }
         }
 
-        let phone: String
-        if cleanTarget.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
-            phone = sanitizePhone(cleanTarget)
-        } else {
-            do { phone = try await resolvePhoneNumber(for: cleanTarget) }
-            catch { return false }
-        }
-
-        guard !phone.isEmpty else { return false }
         let routes = NativeCapabilityLedger.shared.orderedByReliability(["whatsapp.native", "whatsapp.web"])
         for route in routes {
-            let opened: Bool
+            let url: URL?
             if route == "whatsapp.native" {
-                var components = URLComponents()
-                components.scheme = "whatsapp"
-                components.host = "send"
-                var queryItems = [URLQueryItem(name: "phone", value: phone)]
-                if !cleanMessage.isEmpty { queryItems.append(URLQueryItem(name: "text", value: cleanMessage)) }
-                components.queryItems = queryItems
-                opened = components.url.map { url in
-                    Task { await self.openURL(url) }
-                    return true
-                } ?? false
-                if opened, let url = components.url {
-                    let actual = await openURL(url)
-                    NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: actual)
-                    if actual { return true }
-                    continue
+                if phone.isEmpty {
+                    url = URL(string: "whatsapp://")
+                } else {
+                    var components = URLComponents()
+                    components.scheme = "whatsapp"
+                    components.host = "send"
+                    var queryItems = [URLQueryItem(name: "phone", value: phone)]
+                    if !cleanMessage.isEmpty { queryItems.append(URLQueryItem(name: "text", value: cleanMessage)) }
+                    components.queryItems = queryItems
+                    url = components.url
                 }
             } else {
-                var components = URLComponents(string: "https://wa.me/\(phone)")
-                if !cleanMessage.isEmpty {
-                    components?.queryItems = [URLQueryItem(name: "text", value: cleanMessage)]
-                }
-                opened = components?.url.map { url in
-                    Task { await self.openURL(url) }
-                    return true
-                } ?? false
-                if opened, let url = components?.url {
-                    let actual = await openURL(url)
-                    NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: actual)
-                    if actual { return true }
-                    continue
+                if phone.isEmpty {
+                    url = URL(string: "https://web.whatsapp.com/")
+                } else {
+                    var components = URLComponents(string: "https://wa.me/\(phone)")
+                    if !cleanMessage.isEmpty {
+                        components?.queryItems = [URLQueryItem(name: "text", value: cleanMessage)]
+                    }
+                    url = components?.url
                 }
             }
-            NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: false)
+
+            guard let url else {
+                NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: false)
+                continue
+            }
+            let opened = await openURL(url)
+            NativeCapabilityLedger.shared.record(action: route, capabilityId: "whatsapp.handoff", succeeded: opened)
+            if opened { return true }
         }
         return false
     }
