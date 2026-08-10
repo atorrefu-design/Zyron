@@ -58,19 +58,12 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
     }
 
     func openApp(named rawName: String) async -> Bool {
-        let name = normalize(rawName)
-        let schemes: [String: String] = [
-            "whatsapp": "whatsapp://",
-            "spotify": "spotify://",
-            "youtube": "youtube://",
-            "google maps": "comgooglemaps://",
-            "maps": "http://maps.apple.com/",
-            "mapas": "http://maps.apple.com/",
-            "telegram": "tg://",
-        ]
-
-        guard let target = schemes[name] else { return false }
-        return await openURLString(target)
+        guard let candidate = NativeAppRegistry.shared.candidate(named: rawName) else { return false }
+        let opened = await openURLString(candidate.launchURL)
+        if opened {
+            NativeAppRegistry.shared.recordSuccessfulLaunch(candidate)
+        }
+        return opened
     }
 
     func openURLString(_ rawURL: String) async -> Bool {
