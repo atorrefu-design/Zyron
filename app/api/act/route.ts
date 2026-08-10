@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { decideAction } from "../../../lib/capabilities/action-policy";
+import { buildNativeSequence } from "../../../lib/capabilities/compound-native";
 import { buildNativePayload } from "../../../lib/capabilities/native-payload";
 import { resolveCapabilityRequest } from "../../../lib/capabilities/resolve";
 
@@ -54,6 +55,18 @@ export async function POST(request: Request) {
       messages: messages.length ? messages : [{ role: "user" as const, content: text }],
       deviceLocation: body.deviceLocation ?? null,
     };
+
+    const sequence = buildNativeSequence(text);
+    if (sequence) {
+      return NextResponse.json({
+        ok: true,
+        mode: "native_execute",
+        action: "sequence.execute",
+        capabilityId: "native.sequence",
+        input: text,
+        payload: { steps: JSON.stringify(sequence) },
+      });
+    }
 
     const resolution = resolveCapabilityRequest(text);
     const decision = decideAction(resolution, text);
