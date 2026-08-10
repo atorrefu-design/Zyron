@@ -6,6 +6,7 @@ export type ZyronActionResponse = {
   action?: string;
   capabilityId?: string;
   input?: string;
+  payload?: Record<string, string>;
   transport?: "server" | "native";
   target?: string;
   message?: string;
@@ -42,9 +43,6 @@ export type NativeActionResultDetail = {
   value?: string;
 };
 
-/**
- * Single action-first entry point for ZYRON clients.
- */
 export async function executeZyronRequest(
   request: ZyronActionRequest,
   options?: { signal?: AbortSignal },
@@ -65,10 +63,6 @@ export async function executeZyronRequest(
   return data;
 }
 
-/**
- * Sends privileged work to the native iPhone companion when the ZYRON web UI
- * is hosted inside WKWebView. A plain browser/PWA has no privileged executor.
- */
 export function dispatchNativeAction(data: ZyronActionResponse): boolean {
   if (typeof window === "undefined" || data.mode !== "native_execute" || !data.action) return false;
 
@@ -79,18 +73,18 @@ export function dispatchNativeAction(data: ZyronActionResponse): boolean {
       action: data.action,
       capabilityId: data.capabilityId,
       input: data.input,
-      payload: {},
+      payload: data.payload ?? {},
     });
     return true;
   }
 
-  // Compatibility hook for native shells that choose to intercept DOM events.
   const event = new CustomEvent("zyron:native-action", {
     cancelable: true,
     detail: {
       action: data.action,
       capabilityId: data.capabilityId,
       input: data.input,
+      payload: data.payload ?? {},
     },
   });
   return !window.dispatchEvent(event);
