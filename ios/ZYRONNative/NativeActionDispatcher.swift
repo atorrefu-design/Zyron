@@ -72,6 +72,17 @@ final class NativeActionDispatcher {
             }
         }
 
+        register("app.open") { envelope in
+            let app = envelope.payload?["app"] ?? envelope.input ?? ""
+            let opened = await NativeDeviceActions.shared.openApp(named: app)
+            return Result(
+                handled: true,
+                succeeded: opened,
+                reply: opened ? "Abierto." : NativeDeviceActionError.appUnavailable.localizedDescription,
+                value: nil
+            )
+        }
+
         register("open_whatsapp_target") { envelope in
             let target = envelope.payload?["target"]
             let message = envelope.payload?["message"]
@@ -104,7 +115,8 @@ final class NativeActionDispatcher {
 
         register("navigation.start") { envelope in
             let destination = envelope.payload?["destination"] ?? envelope.input ?? ""
-            let opened = await NativeDeviceActions.shared.startNavigation(to: destination)
+            let personalPlace = envelope.payload?["personalPlace"]
+            let opened = await NativeDeviceActions.shared.startNavigation(to: destination, personalPlace: personalPlace)
             return Result(
                 handled: true,
                 succeeded: opened,
