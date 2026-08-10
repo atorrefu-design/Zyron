@@ -8,6 +8,7 @@ struct NativeResultContext {
         var context: [String: String] = [
             "result.value": value,
             "result.type": inferType(action: action, capabilityId: capabilityId, value: value),
+            "result.best": value,
         ]
 
         switch context["result.type"] {
@@ -16,19 +17,30 @@ struct NativeResultContext {
                 context["location.latitude"] = String(location.latitude)
                 context["location.longitude"] = String(location.longitude)
                 context["location.accuracy"] = String(location.accuracy)
+                context["location.coordinate"] = "\(location.latitude),\(location.longitude)"
                 context["location.share"] = "Mi ubicación: https://maps.apple.com/?ll=\(location.latitude),\(location.longitude)"
                 context["result.share"] = context["location.share"]
+                context["result.best"] = context["location.share"]
+                context["result.destination"] = context["location.coordinate"]
             }
         case "file":
             context["file.path"] = value
             context["file.url"] = URL(fileURLWithPath: value).absoluteString
             context["result.share"] = context["file.url"]
+            context["result.best"] = context["file.url"]
         case "notification":
             context["notification.id"] = value
+            context["result.best"] = value
         case "executor":
             context["executor.name"] = value
+            context["result.best"] = value
+        case "url":
+            context["url.value"] = value
+            context["result.share"] = value
+            context["result.best"] = value
         default:
-            break
+            context["text.value"] = value
+            context["result.best"] = value
         }
 
         return context
