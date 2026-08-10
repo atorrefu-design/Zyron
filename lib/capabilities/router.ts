@@ -33,6 +33,12 @@ const RULES: Rule[] = [
     reason: "La petición necesita o probablemente se beneficia de la ubicación actual.",
   },
   {
+    capabilityId: "apps.open",
+    terms: ["abre", "abrir", "inicia", "lanza", "spotify", "youtube", "instagram", "telegram", "whatsapp"],
+    phrases: ["abre spotify", "abre youtube", "abre la app", "abre la aplicación", "abre la aplicacion"],
+    reason: "La petición pide abrir directamente una aplicación del iPhone.",
+  },
+  {
     capabilityId: "maps.navigation",
     terms: ["llévame", "llevame", "navega", "navegación", "navegacion"],
     phrases: ["llévame a", "llevame a", "navega hasta", "navega a", "vamos a"],
