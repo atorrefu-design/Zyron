@@ -1,5 +1,6 @@
 import { decideAction } from "./action-policy";
 import { buildNativePayload, type NativePayload } from "./native-payload";
+import { nativeResultType, type NativeResultType } from "./result-types";
 import { resolveCapabilityRequest } from "./resolve";
 
 export type NativeSequenceStep = {
@@ -7,6 +8,7 @@ export type NativeSequenceStep = {
   capabilityId: string;
   input: string;
   payload: NativePayload;
+  resultType: NativeResultType;
 };
 
 function stripWakeWord(value: string) {
@@ -35,7 +37,7 @@ function wireResultReferences(steps: NativeSequenceStep[]) {
 
   return steps.map((step, index) => {
     const next = { ...step, payload: { ...step.payload } };
-    if (step.capabilityId === "location.current") {
+    if (step.resultType === "location") {
       lastLocationStep = index;
       return next;
     }
@@ -61,6 +63,7 @@ function wireResultReferences(steps: NativeSequenceStep[]) {
         ? `${existing} ${locationToken}`
         : locationToken;
       next.payload.sourceStep = String(lastLocationStep);
+      next.payload.sourceType = "location";
     }
 
     return next;
@@ -82,6 +85,7 @@ export function buildNativeSequence(input: string): NativeSequenceStep[] | null 
       capabilityId: decision.capabilityId,
       input: clause,
       payload: buildNativePayload(decision.target, clause),
+      resultType: nativeResultType(decision.capabilityId, decision.target),
     });
   }
 
