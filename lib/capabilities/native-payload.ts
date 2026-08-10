@@ -34,7 +34,7 @@ function extractReminder(input: string): NativePayload {
   if (relative) {
     const amount = Number(relative[1]);
     const seconds = relative[2].startsWith("hora") ? amount * 3600 : amount * 60;
-    payload.delaySeconds = String(seconds);
+    payload.afterSeconds = String(seconds);
   }
 
   const quoted = clean.match(/[“"]([^”"]+)[”"]/);
@@ -67,7 +67,7 @@ function extractWhatsAppTarget(input: string): NativePayload {
 
 export function buildNativePayload(action: string, input: string): NativePayload {
   switch (action) {
-    case "start_navigation": {
+    case "navigation.start": {
       const destination = extractDestination(input);
       return destination ? { destination } : {};
     }
