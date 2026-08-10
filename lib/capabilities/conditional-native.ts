@@ -11,16 +11,16 @@ export type NativeConditionalStep = {
 };
 
 export type NativeConditionalPlan = {
-  primarySteps: NativeConditionalStep[];
+  primary: NativeConditionalStep;
   condition: "on_success" | "on_failure";
-  branchSteps: NativeConditionalStep[];
+  branch: NativeConditionalStep;
 };
 
 function stripWakeWord(value: string) {
   return value.replace(/^\s*(zyron|zayron)[,\s:-]*/i, "").trim();
 }
 
-function buildStep(clause: string): NativeConditionalStep | null {
+function buildSingleStep(clause: string): NativeConditionalStep | null {
   const input = clause.trim();
   if (!input) return null;
   const resolution = resolveCapabilityRequest(input);
@@ -34,18 +34,26 @@ function buildStep(clause: string): NativeConditionalStep | null {
   };
 }
 
-function buildSteps(clause: string): NativeConditionalStep[] | null {
-  const sequence = buildNativeSequence(clause);
-  if (sequence?.length) return sequence;
-  const step = buildStep(clause);
-  return step ? [step] : null;
+/** Wrap a multi-step clause as the already-supported native sequence executor. */
+function buildExecutableStep(clause: string): NativeConditionalStep | null {
+  const input = clause.trim();
+  const sequence = buildNativeSequence(input);
+  if (sequence?.length) {
+    return {
+      action: "sequence.execute",
+      capabilityId: "native.sequence",
+      input,
+      payload: { steps: JSON.stringify(sequence) },
+    };
+  }
+  return buildSingleStep(input);
 }
 
 function makePlan(primaryClause: string, condition: NativeConditionalPlan["condition"], branchClause: string) {
-  const primarySteps = buildSteps(primaryClause);
-  const branchSteps = buildSteps(branchClause);
-  if (!primarySteps?.length || !branchSteps?.length) return null;
-  return { primarySteps, condition, branchSteps } satisfies NativeConditionalPlan;
+  const primary = buildExecutableStep(primaryClause);
+  const branch = buildExecutableStep(branchClause);
+  if (!primary || !branch) return null;
+  return { primary, condition, branch } satisfies NativeConditionalPlan;
 }
 
 /**
