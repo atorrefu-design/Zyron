@@ -26,6 +26,18 @@ const EXECUTORS: Record<string, Omit<CapabilityExecutionPlan, "capabilityId" | "
     mode: "native_execute",
     nativeAction: "app.open",
   },
+  "phone.call": {
+    mode: "native_execute",
+    nativeAction: "phone.call",
+  },
+  "messages.sms": {
+    mode: "native_execute",
+    nativeAction: "messages.sms",
+  },
+  "media.play": {
+    mode: "native_execute",
+    nativeAction: "media.play",
+  },
   "maps.navigation": {
     mode: "native_execute",
     nativeAction: "navigation.start",
