@@ -1,8 +1,5 @@
 import Foundation
 
-/// Generic command envelope shared with the cloud `/api/act` response.
-/// New native capabilities should register here instead of teaching the UI a
-/// special-case protocol for every feature.
 struct NativeActionEnvelope: Codable, Equatable {
     let action: String
     let input: String?
@@ -52,6 +49,9 @@ final class NativeActionDispatcher {
         register("recording.stop") { _ in self.stopRecording() }
 
         register("recording_control") { envelope in
+            if envelope.payload?["command"] == "stop" { return self.stopRecording() }
+            if envelope.payload?["command"] == "start" { return await self.startRecording() }
+
             let input = self.normalize(envelope.input ?? "")
             if ["deja de grabar", "para de grabar", "deten la grabacion", "termina de grabar", "finaliza la grabacion"]
                 .contains(where: input.contains) {
