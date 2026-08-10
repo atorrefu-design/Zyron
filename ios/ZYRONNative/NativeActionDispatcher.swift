@@ -14,6 +14,12 @@ private struct NativeSequenceStep: Codable {
     let payload: [String: String]
 }
 
+private struct NativeConditionalPlan: Codable {
+    let primary: NativeSequenceStep
+    let condition: String
+    let branch: NativeSequenceStep
+}
+
 @MainActor
 final class NativeActionDispatcher {
     static let shared = NativeActionDispatcher()
@@ -49,6 +55,41 @@ final class NativeActionDispatcher {
     }
 
     private func registerBuiltIns() {
+        register("conditional.execute") { envelope in
+            guard let raw = envelope.payload?["plan"],
+                  let data = raw.data(using: .utf8),
+                  let plan = try? JSONDecoder().decode(NativeConditionalPlan.self, from: data) else {
+                return Result(handled: true, succeeded: false, reply: "No he podido interpretar la condición.", value: nil)
+            }
+
+            let primaryEnvelope = NativeActionEnvelope(
+                action: plan.primary.action,
+                input: plan.primary.input,
+                capabilityId: plan.primary.capabilityId,
+                payload: plan.primary.payload
+            )
+            let primaryResult = await self.execute(primaryEnvelope)
+            let shouldBranch = plan.condition == "on_failure"
+                ? (!primaryResult.handled || !primaryResult.succeeded)
+                : (primaryResult.handled && primaryResult.succeeded)
+
+            guard shouldBranch else { return primaryResult }
+
+            let branchEnvelope = NativeActionEnvelope(
+                action: plan.branch.action,
+                input: plan.branch.input,
+                capabilityId: plan.branch.capabilityId,
+                payload: plan.branch.payload
+            )
+            let branchResult = await self.execute(branchEnvelope)
+            return Result(
+                handled: true,
+                succeeded: branchResult.succeeded,
+                reply: branchResult.reply,
+                value: branchResult.value
+            )
+        }
+
         register("sequence.execute") { envelope in
             guard let raw = envelope.payload?["steps"],
                   let data = raw.data(using: .utf8),
