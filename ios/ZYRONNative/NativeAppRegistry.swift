@@ -11,22 +11,23 @@ final class NativeAppRegistry {
         let canonicalName: String
         let aliases: [String]
         let launchURL: String
+        let webFallbackURL: String?
     }
 
     private let learnedKey = "zyron.nativeApps.learned.v1"
 
     private let catalog: [Candidate] = [
-        Candidate(canonicalName: "WhatsApp", aliases: ["whatsapp", "wasap", "watsap"], launchURL: "whatsapp://"),
-        Candidate(canonicalName: "Spotify", aliases: ["spotify"], launchURL: "spotify://"),
-        Candidate(canonicalName: "YouTube", aliases: ["youtube", "you tube"], launchURL: "youtube://"),
-        Candidate(canonicalName: "Google Maps", aliases: ["google maps", "google mapas"], launchURL: "comgooglemaps://"),
-        Candidate(canonicalName: "Mapas", aliases: ["maps", "mapas", "apple maps", "mapas de apple"], launchURL: "http://maps.apple.com/"),
-        Candidate(canonicalName: "Telegram", aliases: ["telegram"], launchURL: "tg://"),
-        Candidate(canonicalName: "Gmail", aliases: ["gmail", "google mail"], launchURL: "googlegmail://"),
-        Candidate(canonicalName: "Chrome", aliases: ["chrome", "google chrome"], launchURL: "googlechrome://"),
-        Candidate(canonicalName: "Waze", aliases: ["waze"], launchURL: "waze://"),
-        Candidate(canonicalName: "Teams", aliases: ["teams", "microsoft teams"], launchURL: "msteams://"),
-        Candidate(canonicalName: "Outlook", aliases: ["outlook", "microsoft outlook"], launchURL: "ms-outlook://")
+        Candidate(canonicalName: "WhatsApp", aliases: ["whatsapp", "wasap", "watsap"], launchURL: "whatsapp://", webFallbackURL: "https://web.whatsapp.com/"),
+        Candidate(canonicalName: "Spotify", aliases: ["spotify"], launchURL: "spotify://", webFallbackURL: "https://open.spotify.com/"),
+        Candidate(canonicalName: "YouTube", aliases: ["youtube", "you tube"], launchURL: "youtube://", webFallbackURL: "https://www.youtube.com/"),
+        Candidate(canonicalName: "Google Maps", aliases: ["google maps", "google mapas"], launchURL: "comgooglemaps://", webFallbackURL: "https://maps.google.com/"),
+        Candidate(canonicalName: "Mapas", aliases: ["maps", "mapas", "apple maps", "mapas de apple"], launchURL: "http://maps.apple.com/", webFallbackURL: "https://maps.apple.com/"),
+        Candidate(canonicalName: "Telegram", aliases: ["telegram"], launchURL: "tg://", webFallbackURL: "https://web.telegram.org/"),
+        Candidate(canonicalName: "Gmail", aliases: ["gmail", "google mail"], launchURL: "googlegmail://", webFallbackURL: "https://mail.google.com/"),
+        Candidate(canonicalName: "Chrome", aliases: ["chrome", "google chrome"], launchURL: "googlechrome://", webFallbackURL: "https://www.google.com/"),
+        Candidate(canonicalName: "Waze", aliases: ["waze"], launchURL: "waze://", webFallbackURL: "https://www.waze.com/live-map/"),
+        Candidate(canonicalName: "Teams", aliases: ["teams", "microsoft teams"], launchURL: "msteams://", webFallbackURL: "https://teams.microsoft.com/"),
+        Candidate(canonicalName: "Outlook", aliases: ["outlook", "microsoft outlook"], launchURL: "ms-outlook://", webFallbackURL: "https://outlook.office.com/")
     ]
 
     private init() {}
