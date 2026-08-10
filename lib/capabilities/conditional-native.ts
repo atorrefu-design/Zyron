@@ -16,6 +16,8 @@ export type NativeConditionalPlan = {
   branch: NativeConditionalStep;
 };
 
+const MAX_CONDITIONAL_DEPTH = 3;
+
 function stripWakeWord(value: string) {
   return value.replace(/^\s*(zyron|zayron)[,\s:-]*/i, "").trim();
 }
@@ -34,34 +36,53 @@ function buildSingleStep(clause: string): NativeConditionalStep | null {
   };
 }
 
-/** Wrap a multi-step clause as the already-supported native sequence executor. */
-function buildExecutableStep(clause: string): NativeConditionalStep | null {
-  const input = clause.trim();
+function wrapSequence(input: string): NativeConditionalStep | null {
   const sequence = buildNativeSequence(input);
-  if (sequence?.length) {
-    return {
-      action: "sequence.execute",
-      capabilityId: "native.sequence",
-      input,
-      payload: { steps: JSON.stringify(sequence) },
-    };
-  }
-  return buildSingleStep(input);
+  if (!sequence?.length) return null;
+  return {
+    action: "sequence.execute",
+    capabilityId: "native.sequence",
+    input,
+    payload: { steps: JSON.stringify(sequence) },
+  };
 }
 
-function makePlan(primaryClause: string, condition: NativeConditionalPlan["condition"], branchClause: string) {
-  const primary = buildExecutableStep(primaryClause);
-  const branch = buildExecutableStep(branchClause);
-  if (!primary || !branch) return null;
-  return { primary, condition, branch } satisfies NativeConditionalPlan;
+function wrapConditional(input: string, depth: number): NativeConditionalStep | null {
+  if (depth >= MAX_CONDITIONAL_DEPTH) return null;
+  const nested = buildNativeConditionalInternal(input, depth + 1);
+  if (!nested) return null;
+  return {
+    action: "conditional.execute",
+    capabilityId: "native.conditional",
+    input,
+    payload: { plan: JSON.stringify(nested) },
+  };
 }
 
 /**
- * Supports only conditions ZYRON can actually observe: whether the preceding
- * native action or sequence succeeded or failed. It intentionally does not
- * claim to observe external state such as whether a person answered a call.
+ * A branch can itself be another condition, a sequence, or one native action.
+ * This reuses the executors already supported by the iPhone companion.
  */
-export function buildNativeConditional(input: string): NativeConditionalPlan | null {
+function buildExecutableStep(clause: string, depth: number): NativeConditionalStep | null {
+  const input = clause.trim();
+  if (!input) return null;
+  return wrapConditional(input, depth) ?? wrapSequence(input) ?? buildSingleStep(input);
+}
+
+function makePlan(
+  primaryClause: string,
+  condition: NativeConditionalPlan["condition"],
+  branchClause: string,
+  depth: number,
+): NativeConditionalPlan | null {
+  const primary = buildExecutableStep(primaryClause, depth);
+  const branch = buildExecutableStep(branchClause, depth);
+  if (!primary || !branch) return null;
+  return { primary, condition, branch };
+}
+
+function buildNativeConditionalInternal(input: string, depth: number): NativeConditionalPlan | null {
+  if (depth > MAX_CONDITIONAL_DEPTH) return null;
   const clean = stripWakeWord(input);
 
   const failurePatterns = [
@@ -71,7 +92,7 @@ export function buildNativeConditional(input: string): NativeConditionalPlan | n
   for (const pattern of failurePatterns) {
     const match = clean.match(pattern);
     if (!match?.[1] || !match?.[2]) continue;
-    const plan = makePlan(match[1], "on_failure", match[2]);
+    const plan = makePlan(match[1], "on_failure", match[2], depth);
     if (plan) return plan;
   }
 
@@ -81,9 +102,18 @@ export function buildNativeConditional(input: string): NativeConditionalPlan | n
   for (const pattern of successPatterns) {
     const match = clean.match(pattern);
     if (!match?.[1] || !match?.[2]) continue;
-    const plan = makePlan(match[1], "on_success", match[2]);
+    const plan = makePlan(match[1], "on_success", match[2], depth);
     if (plan) return plan;
   }
 
   return null;
+}
+
+/**
+ * Supports nested conditions only when they are based on outcomes ZYRON can
+ * actually observe: native success or failure. It does not claim to observe
+ * external app state such as whether a person answered a phone call.
+ */
+export function buildNativeConditional(input: string): NativeConditionalPlan | null {
+  return buildNativeConditionalInternal(input, 0);
 }
