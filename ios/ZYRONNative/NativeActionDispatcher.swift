@@ -72,14 +72,21 @@ final class NativeActionDispatcher {
             }
         }
 
-        register("open_whatsapp_target") { _ in
-            let opened = await NativeDeviceActions.shared.openWhatsApp()
-            return Result(
-                handled: true,
-                succeeded: opened,
-                reply: opened ? "WhatsApp abierto." : NativeDeviceActionError.whatsappUnavailable.localizedDescription,
-                value: nil
-            )
+        register("open_whatsapp_target") { envelope in
+            let target = envelope.payload?["target"]
+            let message = envelope.payload?["message"]
+            let opened = await NativeDeviceActions.shared.openWhatsApp(target: target, message: message)
+            let reply: String
+            if opened {
+                if let target, !target.isEmpty {
+                    reply = message?.isEmpty == false ? "Chat de WhatsApp preparado." : "Chat de WhatsApp abierto."
+                } else {
+                    reply = "WhatsApp abierto."
+                }
+            } else {
+                reply = NativeDeviceActionError.whatsappUnavailable.localizedDescription
+            }
+            return Result(handled: true, succeeded: opened, reply: reply, value: nil)
         }
 
         register("open_url") { envelope in
