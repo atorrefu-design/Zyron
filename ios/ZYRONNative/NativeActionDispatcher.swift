@@ -83,6 +83,13 @@ final class NativeActionDispatcher {
             )
         }
 
+        register("apps.learned") { _ in
+            let learned = NativeAppRegistry.shared.learnedApps()
+            let known = NativeAppRegistry.shared.knownIntegrationNames()
+            let value = "{\"learned\":\(self.jsonArray(learned)),\"known\":\(self.jsonArray(known))}"
+            return Result(handled: true, succeeded: true, reply: nil, value: value)
+        }
+
         register("open_whatsapp_target") { envelope in
             let target = envelope.payload?["target"]
             let message = envelope.payload?["message"]
@@ -181,6 +188,12 @@ final class NativeActionDispatcher {
             )
         }
         return Result(handled: true, succeeded: true, reply: "He iniciado la configuración de permisos.", value: nil)
+    }
+
+    private func jsonArray(_ values: [String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: values),
+              let json = String(data: data, encoding: .utf8) else { return "[]" }
+        return json
     }
 
     private func normalize(_ value: String) -> String {
