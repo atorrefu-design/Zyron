@@ -57,7 +57,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
           type: "server_vad",
           threshold: 0.45,
           prefix_padding_ms: 250,
-          silence_duration_ms: 420,
+          silence_duration_ms: 300,
           create_response: true,
           interrupt_response: true,
         },
