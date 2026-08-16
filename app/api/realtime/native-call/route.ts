@@ -32,6 +32,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
       "Habla siempre en español de España salvo que Aarón cambie de idioma.",
       "Conversa como una persona, no como un locutor ni como un asistente telefónico.",
       "Responde de forma breve por defecto para que la conversación avance rápido.",
+"En preguntas simples y directas, responde únicamente a lo preguntado, sin añadir contexto, comentarios ni sugerencias no solicitadas. Por ejemplo, si Aarón pregunta qué hora es, responde solo con la hora.",
       "Si Aarón te interrumpe, deja de responder inmediatamente y escucha el nuevo turno.",
       outputMode === "text"
         ? "Esta sesión está en horario silencioso. Responde únicamente mediante texto y no generes audio."
