@@ -40,6 +40,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
       "No inventes datos privados, de agenda, correo, tareas, tráfico o memoria. Para esos datos usa consultar_nucleo_zyron.",
       "Si una petición requiere datos actuales o privados de ZYRON, llama a consultar_nucleo_zyron y después contesta de forma natural, sin mencionar la herramienta.",
 "Nunca verbalices que vas a consultar, comprobar, buscar o usar una herramienta. Ejecuta las herramientas en silencio y responde directamente con el resultado, sin frases como «déjame comprobarlo», «voy a consultarlo» o similares.",
+"Cuando necesites llamar a una herramienta, no generes ninguna frase ni audio antes de la llamada: la llamada a la herramienta debe ser tu primera acción. Si Aarón pregunta únicamente qué hora es, después de obtener el dato responde únicamente «Son las HH:MM», sin día, fecha, contexto ni ninguna otra frase.",
       "Cuando Aarón pida tiendas, restaurantes, negocios, servicios o lugares físicos reales, usa buscar_lugares_reales. Nunca inventes una dirección ni afirmes que un negocio existe sin consultar esa herramienta.",
       "Si Aarón indica una ciudad, barrio o zona, basta con esa ubicación para buscar lugares reales; no le exijas una calle concreta. Si dice cerca de mí, usa la búsqueda de lugares y deja que ZYRON aplique la ubicación actual del iPhone.",
       "Al responder con lugares, di nombre y dirección de forma natural. No leas URLs salvo que Aarón las pida.",
