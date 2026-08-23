@@ -1,5 +1,10 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import {
+  AIProviderUnavailableError,
+  generateZyronReply,
+  resolveAISelection,
+} from "../../../lib/ai/router";
 import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../../../lib/db";
 import { listCalendarEvents, type ZyronCalendarEvent } from "../../../lib/google/calendar";
 import {
@@ -437,8 +442,10 @@ export async function POST(request: Request) {
     );
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
     if (!lastUserMessage) return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
+    const aiSelection = resolveAISelection(lastUserMessage);
+    const actionableMessage = aiSelection.prompt;
 
-    const explicitMemory = explicitMemoryContent(lastUserMessage);
+    const explicitMemory = explicitMemoryContent(actionableMessage);
     if (explicitMemory) {
       try {
         const block = await recordManualMemoryFact(explicitMemory, { source: "zyron-chat" });
@@ -458,7 +465,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const gmailIntent = detectGmailIntent(lastUserMessage);
+    const gmailIntent = detectGmailIntent(actionableMessage);
     if (gmailIntent) {
       try {
         const result = await executeGmailIntent(gmailIntent);
@@ -473,7 +480,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const calendarIntent = detectCalendarIntent(lastUserMessage);
+    const calendarIntent = detectCalendarIntent(actionableMessage);
     if (calendarIntent) {
       try {
         const result = await executeCalendarIntent(calendarIntent);
@@ -488,22 +495,19 @@ export async function POST(request: Request) {
       }
     }
 
-    const taskIntent = await classifyTaskIntent(lastUserMessage);
+    const taskIntent = await classifyTaskIntent(actionableMessage);
     if (taskIntent.action !== "none") {
       const result = await executeTaskIntent(taskIntent);
       return NextResponse.json(result);
     }
 
-    const openai = getOpenAI();
-    if (!openai) return NextResponse.json({ error: "OPENAI_API_KEY no está configurada" }, { status: 503 });
-    const localMemory = await buildMemoryContext(lastUserMessage).catch((error) => {
+    const localMemory = await buildMemoryContext(aiSelection.prompt).catch((error) => {
       console.error("ZYRON_LOCAL_MEMORY_SEARCH_ERROR", error);
       return { context: "La memoria local no está disponible temporalmente.", blocks: [] };
     });
-    const response = await openai.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-5-mini",
-      instructions: [
+    const instructions = [
         "Eres ZYRON, el asistente personal privado de Aarón.",
+        "Tu identidad, memoria y reglas pertenecen a ZYRON. El modelo que genera esta respuesta es solo un motor sustituible; no digas que eres ChatGPT, Claude o Gemini.",
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
         "Usa la memoria como contexto de trabajo y aplica sus preferencias de forma silenciosa; no la recites de forma mecánica.",
@@ -511,12 +515,30 @@ export async function POST(request: Request) {
         "El motor de acciones gestiona tareas y consulta Google Calendar y Gmail antes de llegar a esta conversación. No afirmes haber leído datos privados o ejecutado acciones si el sistema no te los ha proporcionado.",
         `Herramientas disponibles:\n${toolSummary()}`,
         `Memoria privada local de ZYRON:\n${localMemory.context}`,
-      ].join("\n\n"),
-      input: messages.slice(-12).map((message) => ({ role: message.role, content: message.content })),
-    });
-    const reply = response.output_text?.trim() || "No he podido construir una respuesta útil.";
-    const memoriesUsed = localMemory.blocks.length;
-    return NextResponse.json({ reply, tool: memoriesUsed ? "memory" : "conversation", memoriesUsed });
+      ].join("\n\n");
+
+    try {
+      const result = await generateZyronReply({ selection: aiSelection, instructions, messages });
+      const memoriesUsed = localMemory.blocks.length;
+      return NextResponse.json({
+        reply: result.text,
+        tool: memoriesUsed ? "memory" : "conversation",
+        memoriesUsed,
+        provider: result.provider,
+        model: result.model,
+        routeReason: result.routeReason,
+      });
+    } catch (error) {
+      if (error instanceof AIProviderUnavailableError) {
+        return NextResponse.json({
+          reply: error.message,
+          action: "ai_provider_unavailable",
+          tool: "conversation",
+          provider: error.provider,
+        });
+      }
+      throw error;
+    }
   } catch (error) {
     console.error("ZYRON_CHAT_ERROR", error);
     return NextResponse.json({ error: "Error interno del núcleo de ZYRON" }, { status: 500 });
