@@ -27,12 +27,17 @@ function isTimeChatMessage(value: string) {
 }
 
 function isMobilityChatMessage(value: string) {
-  const clean = normalize(value);
+  const clean = normalize(value).replace(/\s+/g, " ").trim();
   const explicitMobility = /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada)\b/.test(clean);
   const commuteArrival = /\b(llego|llegare|llegaria)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
   const timedDeparture = /\b(salgo|saldre|saldria|salir)\b.*\blas?\s+\d{1,2}(?:[:.]\d{2})?\b/.test(clean);
-  const routineArrival = /\b(quiero|prefiero|necesito|fija|pon|cambia|actualiza|guarda)\b.*\b(llegar|llegada|hora)\b.*\b(trabajo|oficina|curro)\b/.test(clean)
-    || /\b(mi hora habitual de llegada|mi hora de llegada)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
+  const routineUpdate = /\b(fija|pon|guarda|corrige)\b.*\b(llegar|llegada|hora)\b.*\b(trabajo|oficina|curro)\b/.test(clean)
+    || /\b(cambia|actualiza)\s+(?:(?:mi|la)\s+)?(?:hora|llegada)\b.*\b(trabajo|oficina|curro)\b/.test(clean);
+  const routinePreference = /\b(quiero|prefiero|necesito)\b/.test(clean)
+    && /\b(llegar|llegada)\b/.test(clean)
+    && /\b(trabajo|oficina|curro)\b/.test(clean)
+    && /\blas?\s+\d{1,2}(?:[:.]\d{2})?\b/.test(clean);
+  const routineArrival = routineUpdate || routinePreference;
   const routineAddress = /\b(mi\s+(?:trabajo|oficina|curro)\s+esta\s+en|direccion\s+de\s+mi\s+(?:trabajo|oficina|curro)|(?:cambia|actualiza|corrige|guarda)\s+(?:la\s+)?direccion\s+de\s+(?:mi\s+)?(?:trabajo|oficina|curro))\b/.test(clean);
   return explicitMobility || commuteArrival || timedDeparture || routineArrival || routineAddress;
 }
