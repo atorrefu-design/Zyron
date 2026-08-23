@@ -60,7 +60,10 @@ final class ZyronAppController: ObservableObject {
     func restore() async {
         guard !didRestore else { return }
         didRestore = true
-
+        let shouldStartVoice = UserDefaults.standard.bool(forKey: "zyron.intent.start-voice")
+        if shouldStartVoice {
+            UserDefaults.standard.set(false, forKey: "zyron.intent.start-voice")
+        }
         await refreshCloudStatus()
         isAuthenticated = apiClient.hasOwnerSession
         hasStoredPicovoiceKey = KeychainStore.picovoiceAccessKey() != nil
@@ -71,7 +74,10 @@ final class ZyronAppController: ObservableObject {
                 : "Conecta este iPhone con el núcleo privado de ZYRON."
             return
         }
-
+        if shouldStartVoice {
+            await startManualConversation()
+            return
+        }
         guard UserDefaults.standard.bool(forKey: Self.alwaysOnPreferenceKey) else {
             statusMessage = cloudCoreOnline == true
                 ? "Companion conectado al núcleo cloud. Voz nativa lista para probar."
@@ -96,6 +102,12 @@ final class ZyronAppController: ObservableObject {
 
     func companionBecameActive() async {
         await refreshCloudStatus()
+        let shouldStartVoice = UserDefaults.standard.bool(forKey: "zyron.intent.start-voice")
+        if shouldStartVoice {
+            UserDefaults.standard.set(false, forKey: "zyron.intent.start-voice")
+            await startManualConversation()
+            return
+        }
         guard isAuthenticated, isAlwaysOnEnabled else { return }
         guard !isConversationRunning else { return }
         runtime.recoverAlwaysOnIfNeeded()
@@ -139,7 +151,7 @@ final class ZyronAppController: ObservableObject {
         }
         guard !isConversationRunning else { return }
 
-        await refreshCloudStatus()
+        // await refreshCloudStatus()
         guard cloudCoreOnline == true else {
             statusMessage = "El núcleo cloud no responde. ZYRON Web seguirá siendo la referencia cuando vuelva la conexión."
             return

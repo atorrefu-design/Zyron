@@ -318,19 +318,15 @@ struct ContentView: View {
     }
 
     private var cloudLabel: String {
-        switch controller.cloudCoreOnline {
-        case true: return "ACTIVO"
-        case false: return "SIN RESPUESTA"
-        case nil: return "COMPROBANDO"
-        }
+        if controller.cloudCoreOnline == true { return "ACTIVO" }
+        if controller.cloudCoreOnline == false { return "SIN RESPUESTA" }
+        return "COMPROBANDO"
     }
 
     private var cloudColor: Color {
-        switch controller.cloudCoreOnline {
-        case true: return .green
-        case false: return .orange
-        case nil: return .secondary
-        }
+        if controller.cloudCoreOnline == true { return .green }
+        if controller.cloudCoreOnline == false { return .orange }
+        return .secondary
     }
 
     private var statusColor: Color {

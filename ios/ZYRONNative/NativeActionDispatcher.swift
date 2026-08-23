@@ -40,13 +40,13 @@ final class NativeActionDispatcher {
 
     func execute(_ envelope: NativeActionEnvelope) async -> Result {
         guard let handler = handlers[envelope.action] else {
-            WakeWordDiagnostics.shared.record("native_action_unhandled", detail: envelope.action)
+            VoiceDiagnosticsLog.record("native_action_unhandled", detail: envelope.action)
             return Result(handled: false, succeeded: false, reply: nil, value: nil)
         }
 
         let result = await handler(envelope)
         NativeCapabilityLedger.shared.record(action: envelope.action, capabilityId: envelope.capabilityId, succeeded: result.succeeded)
-        WakeWordDiagnostics.shared.record(
+        VoiceDiagnosticsLog.record(
             result.succeeded ? "native_action_succeeded" : "native_action_failed",
             detail: "\(envelope.action); capability=\(envelope.capabilityId ?? "unknown")"
         )

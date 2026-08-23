@@ -48,11 +48,11 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     memory: {
       name: "memory",
       description: "Recupera y guarda hechos, preferencias, proyectos y decisiones útiles a largo plazo.",
-      permissions: ["owner_session", "mem0"],
+      permissions: ["owner_session", "database"],
       canWrite: true,
       requiresConfirmation: false,
-      status: configured("MEM0_API_KEY") ? "available" : "needs_configuration",
-      configurationHint: "Configurar MEM0_API_KEY.",
+      status: databaseReady ? "available" : "needs_configuration",
+      configurationHint: "Configurar DATABASE_URL o POSTGRES_URL.",
     },
     conversation: {
       name: "conversation",

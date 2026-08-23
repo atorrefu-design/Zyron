@@ -106,7 +106,7 @@ final class PermissionCoordinator: NSObject, CLLocationManagerDelegate {
         guard status != .notDetermined else { return }
         locationContinuation = nil
         continuation.resume(returning: status == .granted)
-        WakeWordDiagnostics.shared.record("permission_location_resolved", detail: status.rawValue)
+        VoiceDiagnosticsLog.record("permission_location_resolved", detail: status.rawValue)
     }
 
     private static func microphoneStatus() -> Status {

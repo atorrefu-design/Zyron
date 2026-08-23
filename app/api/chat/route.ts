@@ -15,15 +15,13 @@ import {
   GMAIL_READONLY_SCOPE,
 } from "../../../lib/google/oauth";
 import { toolSummary } from "../../../lib/tools/registry";
+import { buildMemoryContext, recordManualMemoryFact } from "../../../lib/memory";
 
 export const runtime = "nodejs";
 
-const USER_ID = "aaron";
-const AGENT_ID = "zyron";
 const MADRID_TIME_ZONE = "Europe/Madrid";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
-type MemoryResult = { memory?: string };
 type TaskIntent =
   | { action: "create"; query: string }
   | { action: "list"; query: "" }
@@ -43,34 +41,18 @@ function getOpenAI() {
   return apiKey ? new OpenAI({ apiKey }) : null;
 }
 
-async function searchMemories(query: string): Promise<string[]> {
-  const apiKey = process.env.MEM0_API_KEY;
-  if (!apiKey) return [];
-  const response = await fetch("https://api.mem0.ai/v3/memories/search/", {
-    method: "POST",
-    headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ query, filters: { user_id: USER_ID }, top_k: 8, threshold: 0.2, rerank: true }),
-    cache: "no-store",
-  });
-  if (!response.ok) return [];
-  const data = (await response.json()) as { results?: MemoryResult[] };
-  return (data.results ?? []).map((item) => item.memory).filter((item): item is string => Boolean(item));
-}
-
-async function storeConversation(messages: ChatMessage[]): Promise<void> {
-  const apiKey = process.env.MEM0_API_KEY;
-  if (!apiKey) return;
-  await fetch("https://api.mem0.ai/v3/memories/add/", {
-    method: "POST",
-    headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages,
-      user_id: USER_ID,
-      agent_id: AGENT_ID,
-      metadata: { source: "zyron-web" },
-      custom_instructions: "Guarda únicamente hechos, preferencias, objetivos, rutinas, proyectos y decisiones útiles a largo plazo sobre Aarón. No guardes saludos, texto transitorio, secretos ni contenido de correos privados.",
-    }),
-  });
+function explicitMemoryContent(message: string) {
+  const patterns = [
+    /^recuerda\s+(?:que\s+)?(.+)$/i,
+    /^guarda\s+(?:en\s+tu\s+memoria\s+)?(?:que\s+)?(.+)$/i,
+    /^memoriza\s+(?:que\s+)?(.+)$/i,
+    /^a\s+partir\s+de\s+ahora[,\s]+(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const content = message.trim().match(pattern)?.[1]?.trim().replace(/[.!?]+$/, "");
+    if (content) return content;
+  }
+  return null;
 }
 
 async function safelyRecordAction(
@@ -456,6 +438,26 @@ export async function POST(request: Request) {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content;
     if (!lastUserMessage) return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
 
+    const explicitMemory = explicitMemoryContent(lastUserMessage);
+    if (explicitMemory) {
+      try {
+        const block = await recordManualMemoryFact(explicitMemory, { source: "zyron-chat" });
+        return NextResponse.json({
+          reply: `Hecho. He guardado en mi memoria: “${explicitMemory}”.`,
+          action: "memory_saved",
+          tool: "memory",
+          memoryBlockId: block.id,
+        });
+      } catch (error) {
+        console.error("ZYRON_EXPLICIT_MEMORY_ERROR", error);
+        return NextResponse.json({
+          reply: "No he podido guardar esa información en la memoria persistente. No voy a fingir que la recordaré.",
+          action: "memory_save_failed",
+          tool: "memory",
+        }, { status: 503 });
+      }
+    }
+
     const gmailIntent = detectGmailIntent(lastUserMessage);
     if (gmailIntent) {
       try {
@@ -475,7 +477,6 @@ export async function POST(request: Request) {
     if (calendarIntent) {
       try {
         const result = await executeCalendarIntent(calendarIntent);
-        void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: result.reply }]).catch(() => undefined);
         return NextResponse.json(result);
       } catch (error) {
         console.error("ZYRON_CALENDAR_CHAT_ERROR", error);
@@ -490,30 +491,32 @@ export async function POST(request: Request) {
     const taskIntent = await classifyTaskIntent(lastUserMessage);
     if (taskIntent.action !== "none") {
       const result = await executeTaskIntent(taskIntent);
-      void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: result.reply }]).catch(() => undefined);
       return NextResponse.json(result);
     }
 
     const openai = getOpenAI();
     if (!openai) return NextResponse.json({ error: "OPENAI_API_KEY no está configurada" }, { status: 503 });
-    const memories = await searchMemories(lastUserMessage);
-    const memoryContext = memories.length ? memories.map((memory, index) => `${index + 1}. ${memory}`).join("\n") : "No hay recuerdos relevantes recuperados para este mensaje.";
+    const localMemory = await buildMemoryContext(lastUserMessage).catch((error) => {
+      console.error("ZYRON_LOCAL_MEMORY_SEARCH_ERROR", error);
+      return { context: "La memoria local no está disponible temporalmente.", blocks: [] };
+    });
     const response = await openai.responses.create({
       model: process.env.OPENAI_MODEL || "gpt-5-mini",
       instructions: [
         "Eres ZYRON, el asistente personal privado de Aarón.",
         "Responde en castellano de España, de forma cercana, directa, honesta y práctica.",
         "No inventes información. Cuando falte un dato, dilo claramente y propón el siguiente paso útil.",
-        "Usa los recuerdos como contexto, no los repitas de forma mecánica ni afirmes que son ciertos si contradicen el mensaje actual.",
+        "Usa la memoria como contexto de trabajo y aplica sus preferencias de forma silenciosa; no la recites de forma mecánica.",
+        "Una corrección nueva de Aarón prevalece sobre un bloque anterior incompatible. Distingue los datos permanentes de los dinámicos y verifica estos últimos en una fuente actual cuando corresponda.",
         "El motor de acciones gestiona tareas y consulta Google Calendar y Gmail antes de llegar a esta conversación. No afirmes haber leído datos privados o ejecutado acciones si el sistema no te los ha proporcionado.",
         `Herramientas disponibles:\n${toolSummary()}`,
-        `Recuerdos relevantes:\n${memoryContext}`,
+        `Memoria privada local de ZYRON:\n${localMemory.context}`,
       ].join("\n\n"),
       input: messages.slice(-12).map((message) => ({ role: message.role, content: message.content })),
     });
     const reply = response.output_text?.trim() || "No he podido construir una respuesta útil.";
-    void storeConversation([{ role: "user", content: lastUserMessage }, { role: "assistant", content: reply }]).catch(() => undefined);
-    return NextResponse.json({ reply, tool: memories.length ? "memory" : "conversation", memoriesUsed: memories.length });
+    const memoriesUsed = localMemory.blocks.length;
+    return NextResponse.json({ reply, tool: memoriesUsed ? "memory" : "conversation", memoriesUsed });
   } catch (error) {
     console.error("ZYRON_CHAT_ERROR", error);
     return NextResponse.json({ error: "Error interno del núcleo de ZYRON" }, { status: 500 });

@@ -71,7 +71,7 @@ final class NativeWebBridge: NSObject, WKScriptMessageHandler {
         do {
             _ = try await webView.evaluateJavaScript(script)
         } catch {
-            WakeWordDiagnostics.shared.record("native_bridge_reply_failed", detail: error.localizedDescription)
+            VoiceDiagnosticsLog.record("native_bridge_reply_failed", detail: error.localizedDescription)
         }
     }
 }

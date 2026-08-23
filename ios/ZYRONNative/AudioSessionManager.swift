@@ -28,7 +28,19 @@ final class AudioSessionManager {
             object: session,
             queue: .main
         ) { [weak self] _ in
-            self?.onRouteChanged?()
+            guard let self else { return }
+
+            if self.isActive {
+                let activeSession = AVAudioSession.sharedInstance()
+                let usesReceiver = activeSession.currentRoute.outputs.contains {
+                    $0.portType == .builtInReceiver
+                }
+
+                if usesReceiver {
+                    try? activeSession.overrideOutputAudioPort(.speaker)
+                }
+            }
+            self.onRouteChanged?()
         })
 
         observers.append(center.addObserver(
@@ -48,14 +60,26 @@ final class AudioSessionManager {
 
     func activateForConversation() throws {
         let session = AVAudioSession.sharedInstance()
-        let options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth]
-
+        let options: AVAudioSession.CategoryOptions = [.allowBluetooth, .defaultToSpeaker]
         try session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
             options: options
         )
         try session.setActive(true)
+        let isUsingExternalAudio = session.currentRoute.outputs.contains { output in
+            switch output.portType {
+            case .bluetoothHFP, .bluetoothA2DP, .bluetoothLE,
+                 .headphones, .carAudio, .airPlay:
+                return true
+            default:
+                return false
+            }
+        }
+
+        try session.overrideOutputAudioPort(
+            isUsingExternalAudio ? .none : .speaker
+        )
         isActive = true
     }
 

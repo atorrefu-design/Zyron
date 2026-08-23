@@ -5,10 +5,11 @@ enum VoiceDiagnosticsLog {
     private static let key = "zyron.voice-diagnostics-events"
     private static let maxEvents = 80
 
-    static func record(_ event: String) {
+    static func record(_ event: String, detail: Any? = nil) {
         let stamp = ISO8601DateFormatter().string(from: Date())
         var events = UserDefaults.standard.stringArray(forKey: key) ?? []
-        events.append("\(stamp) · \(event)")
+        let detailText = detail.map { " · \($0)" } ?? ""
+        events.append("\(stamp) · \(event)\(detailText)")
         if events.count > maxEvents {
             events.removeFirst(events.count - maxEvents)
         }

@@ -8,11 +8,12 @@ ZYRON no depende de que un Mac permanezca encendido. El núcleo vive en la nube;
 
 - Backend/web: Next.js
 - API y orquestación: rutas server-side
+- Memoria privada y portátil: PostgreSQL/Neon con importación Markdown y exportación JSON
 - Cliente nativo iPhone: `ios/`
 - CI: GitHub Actions
 - Objetivo de despliegue del núcleo: Vercel
 
-Consulta `docs/architecture-v1.md` para la arquitectura y los siguientes hitos.
+Consulta `docs/architecture-v1.md` y `docs/MEMORY_API.md` para la arquitectura, la memoria y sus interfaces autorizadas.
 
 ## Desarrollo
 
@@ -27,4 +28,4 @@ Copia `.env.example` a `.env.local` y añade únicamente tus secretos locales. N
 
 ## Estado
 
-El repositorio ya contiene backend, health check, orquestación de voz y trabajo nativo iOS. La fase actual es convertirlo en un despliegue cloud-first y separar definitivamente el runtime de las limitaciones del Mac local.
+El repositorio ya contiene backend, health check, orquestación de voz, memoria persistente propia y trabajo nativo iOS. La memoria no depende de ChatGPT ni de un proveedor de modelos: vive en la misma base PostgreSQL privada que utiliza el núcleo.

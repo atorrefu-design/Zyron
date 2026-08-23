@@ -63,7 +63,7 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         }
 
         switch CNContactStore.authorizationStatus(for: .contacts) {
-        case .authorized, .limited: granted.insert(.contacts)
+        case .authorized: granted.insert(.contacts)
         case .denied, .restricted: denied.insert(.contacts)
         case .notDetermined: notDetermined.insert(.contacts)
         @unknown default: notDetermined.insert(.contacts)
@@ -112,7 +112,7 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
             if #available(iOS 17.0, *) {
                 _ = try? await store.requestFullAccessToEvents()
             } else {
-                _ = try? await withCheckedThrowingContinuation { continuation in
+                let _: Bool? = try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
                     store.requestAccess(to: .event) { granted, error in
                         if let error { continuation.resume(throwing: error) }
                         else { continuation.resume(returning: granted) }
@@ -125,7 +125,7 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         }
 
         let after = await snapshot()
-        WakeWordDiagnostics.shared.record(
+        VoiceDiagnosticsLog.record(
             "permission_request_completed",
             detail: "permission=\(permission.rawValue); granted=\(after.granted.contains(permission))"
         )
@@ -141,7 +141,7 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         }
 
         let result = await snapshot()
-        WakeWordDiagnostics.shared.record(
+        VoiceDiagnosticsLog.record(
             "permission_bootstrap_completed",
             detail: "granted=\(result.granted.map(\.rawValue).sorted().joined(separator: ",")); denied=\(result.denied.map(\.rawValue).sorted().joined(separator: ","))"
         )

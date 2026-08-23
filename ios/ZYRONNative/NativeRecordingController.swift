@@ -60,7 +60,7 @@ final class NativeRecordingController: NSObject {
 
         self.recorder = recorder
         state = .recording(url)
-        WakeWordDiagnostics.shared.record("native_recording_started", detail: url.lastPathComponent)
+        VoiceDiagnosticsLog.record("native_recording_started", detail: url.lastPathComponent)
         return url
     }
 
@@ -72,7 +72,7 @@ final class NativeRecordingController: NSObject {
         self.recorder = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         state = .idle
-        WakeWordDiagnostics.shared.record("native_recording_stopped", detail: url.lastPathComponent)
+        VoiceDiagnosticsLog.record("native_recording_stopped", detail: url.lastPathComponent)
         return url
     }
 
@@ -100,7 +100,7 @@ extension NativeRecordingController: AVAudioRecorderDelegate {
             let message = error?.localizedDescription ?? "Error desconocido durante la grabación."
             self.state = .failed(message)
             self.recorder = nil
-            WakeWordDiagnostics.shared.record("native_recording_failed", detail: message)
+            VoiceDiagnosticsLog.record("native_recording_failed", detail: message)
         }
     }
 }

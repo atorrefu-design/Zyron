@@ -152,22 +152,3 @@ struct TestZyronNotificationIntent: AppIntent {
     }
 }
 
-struct ZyronAppShortcuts: AppShortcutsProvider {
-    @AppShortcutsBuilder
-    static var appShortcuts: [AppShortcut] {
-        // Siri is only a recovery/maintenance fallback. It is not ZYRON's conversational front door.
-        AppShortcut(
-            intent: StartZyronIntent(),
-            phrases: ["Recupera \(.applicationName)"],
-            shortTitle: "Recuperar voz",
-            systemImageName: "waveform.badge.exclamationmark"
-        )
-
-        AppShortcut(
-            intent: OpenZyronDiagnosticsIntent(),
-            phrases: ["Diagnóstico de \(.applicationName)"],
-            shortTitle: "Diagnóstico",
-            systemImageName: "stethoscope"
-        )
-    }
-}

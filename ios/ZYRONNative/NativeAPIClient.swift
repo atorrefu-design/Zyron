@@ -102,7 +102,7 @@ final class NativeAPIClient {
     private init() {}
 
     func fetchHealth() async throws -> NativeHealthResponse {
-        var request = URLRequest(url: baseURL.appending(path: "/api/health"))
+        var request = try authenticatedRequest(path: "/api/health")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
@@ -154,7 +154,9 @@ final class NativeAPIClient {
         request.setValue(responseMode.rawValue, forHTTPHeaderField: "X-Zyron-Output-Mode")
         request.httpBody = Data(sdpOffer.utf8)
 
+        let start = Date()
         let (data, response) = try await URLSession.shared.data(for: request)
+        print("ZYRON_REALTIME_CALL_MS:", Int(Date().timeIntervalSince(start) * 1000))
         let http = try validatedHTTP(response)
         guard (200..<300).contains(http.statusCode) else {
             throw NativeAPIError.server(status: http.statusCode, detail: serverDetail(data))

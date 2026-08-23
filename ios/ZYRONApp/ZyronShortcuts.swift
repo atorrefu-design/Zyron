@@ -13,21 +13,30 @@ struct OpenZyronIntent: AppIntent {
 
 struct TalkToZyronIntent: AppIntent {
     static var title: LocalizedStringResource = "Hablar con ZYRON"
-    static var description = IntentDescription("Abre ZYRON preparado para iniciar una conversación por voz.")
-    static var openAppWhenRun = true
+    static var description = IntentDescription(
+        "Activa ZYRON sin abrir la app."
+    )
 
-    func perform() async throws -> some IntentResult {
-        UserDefaults.standard.set(true, forKey: "zyron.intent.start-voice")
-        return .result()
+    static var openAppWhenRun = false
+    static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        UserDefaults.standard.set(
+            true,
+            forKey: "zyron.intent.start-voice"
+        )
+
+        return .result(dialog: "ZYRON activado")
     }
 }
 
 struct OpenZyronWebIntent: AppIntent {
+    static var openAppWhenRun: Bool = true
     static var title: LocalizedStringResource = "Abrir ZYRON Web"
     static var description = IntentDescription("Abre la interfaz web de ZYRON.")
 
     func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(URL(string: "https://zyron-five.vercel.app")!))
+        .result()
     }
 }
 

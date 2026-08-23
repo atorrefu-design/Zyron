@@ -51,6 +51,8 @@ final class WebRTCNativeTransport: NSObject, NativeRealtimeTransport {
             responseMode: responseMode
         )
         let answer = RTCSessionDescription(type: .answer, sdp: call.answerSDP)
+        let remoteStart = Date()
+        print("ZYRON_REMOTE_SDP_MS:", Int(Date().timeIntervalSince(remoteStart) * 1000))
         try await setRemoteDescription(answer, on: connection)
         return call.outputMode
     }

@@ -331,6 +331,7 @@ export default function Home() {
           <a className="ghostButton navLink" href="/dashboard">Panel</a>
           <a className="ghostButton navLink" href="/goals">Objetivos</a>
           <a className="ghostButton navLink" href="/tasks">Tareas</a>
+          <a className="ghostButton navLink" href="/memory">Memoria</a>
           <a className="ghostButton navLink" href="/activity">Actividad</a>
           <button type="button" className="ghostButton" onClick={clearConversation}>Limpiar</button>
           <button type="button" className="ghostButton" onClick={logout}>Salir</button>

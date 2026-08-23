@@ -8,6 +8,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% 0%, #14234d 0%, #080d1c 42%, #040712 100%); }
 button, input { font: inherit; }
+textarea, select { font: inherit; }
 a { color: inherit; }
 
 .shell { width: min(760px, 100%); min-height: 100vh; margin: 0 auto; padding: 28px 18px 110px; }
@@ -92,11 +93,36 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .compactRow strong { overflow-wrap: anywhere; }
 .compactRow small { color: #8d9ac2; }
 
+.memoryPanel { min-height: 620px; }
+.memoryStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 22px 0; }
+.memoryStats article { display: grid; gap: 4px; border: 1px solid #2b407b; border-radius: 18px; padding: 16px; background: rgba(8, 16, 39, .72); }
+.memoryStats strong { font-size: 1.6rem; }
+.memoryStats span { color: #8f9bc2; font-size: .8rem; }
+.memoryCard { margin-top: 16px; border: 1px solid #2b407b; border-radius: 20px; padding: 18px; background: rgba(8, 16, 39, .68); }
+.memoryCard h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.memoryCard > p { margin: 0 0 16px; color: #9da9cc; line-height: 1.45; }
+.memoryCardHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.memoryForm { display: grid; gap: 10px; }
+.memoryForm label { color: #cdd5f2; font-size: .82rem; }
+.memoryForm input, .memorySearch input { min-width: 0; width: 100%; border: 1px solid #314783; border-radius: 16px; background: #091126; color: white; padding: 13px; }
+.memoryForm input[type="file"] { color: #b9c3e3; }
+.memoryForm button, .memorySearch button { border: 0; border-radius: 16px; padding: 13px 18px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
+.memoryForm button:disabled, .memorySearch button:disabled { opacity: .5; }
+.memorySearch { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.memoryResults { display: grid; gap: 10px; margin-top: 14px; }
+.memoryResults article { border: 1px solid rgba(55, 78, 139, .8); border-radius: 16px; padding: 14px; background: rgba(7, 14, 34, .55); }
+.memoryResults article { display: grid; gap: 5px; }
+.memoryResults span { color: #8f9bc2; font-size: .76rem; }
+.memoryResults p { margin: 4px 0 0; color: #dce3f7; white-space: pre-wrap; line-height: 1.45; }
+.memorySuccess { color: #a8f0ca; background: rgba(24, 102, 67, .24); border: 1px solid rgba(112, 236, 178, .28); border-radius: 14px; padding: 12px 14px; }
+
 @media (max-width: 640px) {
   .taskComposer { grid-template-columns: 1fr; }
   .taskComposer button { min-height: 48px; }
   .activityItem { grid-template-columns: auto 1fr; }
   .activityItem time { grid-column: 2; text-align: left; }
+  .memorySearch { grid-template-columns: 1fr; }
+  .memorySearch button { min-height: 48px; }
 }
 
 @media (max-width: 520px) {
@@ -109,4 +135,5 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
   .voiceToggle { grid-column: 1 / -1; width: 100%; }
   .composer { grid-template-columns: 1fr; }
   .composer button { min-height: 48px; }
+  .memoryStats { grid-template-columns: 1fr; }
 }

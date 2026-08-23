@@ -19,7 +19,7 @@ enum VoiceEngagementRules {
     static let wakeWord = "zyron"
     static let wakeConfirmationWindowMs = 1_800
     static let wakePauseActivationMs = 250
-    static let idleConversationTimeoutMs = 45_000
+    static let idleConversationTimeoutMs = 10_000
     static let softGoodbyeTimeoutMs = 5_000
     static let localContextWindowMs = 4_000
 }

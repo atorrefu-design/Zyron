@@ -270,24 +270,8 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
     }
 
     private func resolvePersonalDestination(_ place: String) async throws -> String {
-        try await NativePermissionGate.shared.run(requiring: .contacts) {
-            let store = CNContactStore()
-            let keys = [CNContactPostalAddressesKey] as [CNKeyDescriptor]
-            let me = try store.unifiedMeContactWithKeys(toFetch: keys)
-            let wanted = self.normalize(place)
-            let match = me.postalAddresses.first { labeled in
-                let label = self.normalize(CNLabeledValue<NSString>.localizedString(forLabel: labeled.label ?? ""))
-                if wanted == "home" { return label.contains("casa") || label.contains("home") }
-                if wanted == "work" { return label.contains("trabajo") || label.contains("work") }
-                return false
-            }
-            guard let address = match?.value else { throw NativeDeviceActionError.personalPlaceUnavailable }
-            let formatted = CNPostalAddressFormatter.string(from: address, style: .mailingAddress)
-                .replacingOccurrences(of: "\n", with: ", ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !formatted.isEmpty else { throw NativeDeviceActionError.personalPlaceUnavailable }
-            return formatted
-        }
+        _ = place
+        throw NativeDeviceActionError.personalPlaceUnavailable
     }
 
     private func resolvePhoneNumber(for name: String) async throws -> String {
