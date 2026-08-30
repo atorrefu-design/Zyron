@@ -9,7 +9,7 @@ import {
 } from "../lib/client/action-client";
 import RealtimeVoice, { type RealtimeVoiceState } from "./realtime-voice";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; engine?: "OpenAI" | "Claude" | "Gemini" };
 type CoreState = "ready" | "listening" | "thinking" | "speaking";
 type PendingCalendarCommand = { originalMessage: string; eventId: string };
 type PendingCalendarChoice = { originalMessage: string; events: Array<{ id: string; title?: string }> };
@@ -232,6 +232,7 @@ export default function Home() {
 
     try {
       let reply: string;
+      let engine: Message["engine"];
       if (pendingChoice && isCancellation(clean)) {
         setPendingChoice(null);
         reply = "De acuerdo. He cancelado la selección y no he cambiado nada en tu calendario.";
@@ -283,11 +284,14 @@ export default function Home() {
         } else {
           const blocked = userFacingTextForBlockedAction(data);
           if (blocked) reply = blocked;
-          else if (data.reply?.trim()) reply = data.reply.trim();
+          else if (data.reply?.trim()) {
+            reply = data.reply.trim();
+            engine = data.provider === "claude" ? "Claude" : data.provider === "gemini" ? "Gemini" : data.provider === "openai" ? "OpenAI" : undefined;
+          }
           else throw new Error(data.error || "El núcleo respondió sin resultado");
         }
       }
-      setMessages((current) => [...current, { role: "assistant", content: reply }]);
+      setMessages((current) => [...current, { role: "assistant", content: reply, engine }]);
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError"
         ? "La consulta ha tardado demasiado y la he detenido. Prueba de nuevo en unos segundos."
@@ -355,7 +359,12 @@ export default function Home() {
           {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt)}>{prompt}</button>)}
         </div>
         <div className="chat" aria-live="polite">
-          {messages.map((message, index) => <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>{message.content}</div>)}
+          {messages.map((message, index) => (
+            <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>
+              <div>{message.content}</div>
+              {message.engine && <small className="engineBadge">Motor · {message.engine}</small>}
+            </div>
+          ))}
           {loading && <div className="bubble assistant">Pensando…</div>}
           <div ref={chatEndRef} />
         </div>

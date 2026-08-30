@@ -8,6 +8,7 @@ ZYRON no depende de que un Mac permanezca encendido. El núcleo vive en la nube;
 
 - Backend/web: Next.js
 - API y orquestación: rutas server-side
+- Motores de IA: OpenAI directo y enrutador opcional a Claude/Gemini mediante Vercel AI Gateway
 - Memoria privada y portátil: PostgreSQL/Neon con importación Markdown y exportación JSON
 - Cliente nativo iPhone: `ios/`
 - CI: GitHub Actions
@@ -25,6 +26,8 @@ npm run dev
 ```
 
 Copia `.env.example` a `.env.local` y añade únicamente tus secretos locales. Nunca subas credenciales al repositorio.
+
+El chat usa OpenAI de forma predeterminada. Con `AI_GATEWAY_API_KEY` configurada también acepta instrucciones explícitas como `Usa Claude: ...` y `Usa Gemini: ...`; PostgreSQL sigue siendo la única fuente de verdad de la memoria y las respuestas de un modelo no se guardan en ella automáticamente.
 
 ## Estado
 

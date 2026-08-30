@@ -57,11 +57,11 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     conversation: {
       name: "conversation",
       description: "Responde cuando no hace falta ejecutar una acción externa.",
-      permissions: ["owner_session", "openai"],
+      permissions: ["owner_session", "ai_provider"],
       canWrite: false,
       requiresConfirmation: false,
-      status: configured("OPENAI_API_KEY") ? "available" : "needs_configuration",
-      configurationHint: "Configurar OPENAI_API_KEY.",
+      status: configured("OPENAI_API_KEY", "AI_GATEWAY_API_KEY") ? "available" : "needs_configuration",
+      configurationHint: "Configurar OPENAI_API_KEY y, para Claude/Gemini, AI_GATEWAY_API_KEY.",
     },
     planner: {
       name: "planner",

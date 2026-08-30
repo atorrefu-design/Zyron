@@ -53,6 +53,26 @@ async function checkOpenAI(): Promise<CheckResult> {
   return { configured: true, ...result };
 }
 
+async function checkAIGateway(): Promise<CheckResult> {
+  const apiKey = process.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) return { configured: false, reachable: null, latencyMs: null };
+
+  const result = await timedCheck(async () => {
+    const response = await fetch("https://ai-gateway.vercel.sh/v1/models", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      if (response.status === 401) throw new Error("ai_gateway_key_rejected");
+      if (response.status === 403) throw new Error("ai_gateway_key_forbidden");
+      throw new Error(`ai_gateway_http_${response.status}`);
+    }
+  }, 8000);
+
+  return { configured: true, ...result };
+}
+
 async function checkDatabase(): Promise<CheckResult> {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) return { configured: false, reachable: null, latencyMs: null };
@@ -86,9 +106,15 @@ async function checkMemory(): Promise<CheckResult> {
 }
 
 export async function getZyronHealth(): Promise<ZyronHealth> {
-  const [openai, database, memory] = await Promise.all([checkOpenAI(), checkDatabase(), checkMemory()]);
+  const [openai, aiGateway, database, memory] = await Promise.all([
+    checkOpenAI(),
+    checkAIGateway(),
+    checkDatabase(),
+    checkMemory(),
+  ]);
   const checks = {
     openai,
+    aiGateway,
     database,
     memory,
     maps: { configured: Boolean(process.env.GOOGLE_MAPS_API_KEY), reachable: null, latencyMs: null },

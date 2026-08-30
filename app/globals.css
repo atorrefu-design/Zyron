@@ -41,6 +41,7 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .bubble { padding: 15px 17px; border-radius: 20px; line-height: 1.45; white-space: pre-wrap; }
 .user { background: #3864ca; margin-left: 12%; }
 .assistant { background: #182443; margin-right: 10%; }
+.engineBadge { display: block; margin-top: 9px; color: #8f9bc2; font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; }
 .composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
 .composer input { min-width: 0; border: 1px solid #314783; border-radius: 18px; background: #091126; color: white; padding: 16px; }
 .composer button { border: 0; border-radius: 18px; padding: 0 20px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
