@@ -1,0 +1,156 @@
+import OpenAI from "openai";
+import type {
+  ChatCompletionAssistantMessageParam,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
+import {
+  AIProviderUnavailableError,
+  resolveAISelection,
+  type ZyronAIMessage,
+  type ZyronAIProvider,
+} from "../ai/router";
+import { buildMemoryContext } from "../memory";
+import { toolSummary } from "../tools/registry";
+import { renderAgentSkills, selectAgentSkills } from "./skills";
+import { agentToolDefinitions, executeAgentTool } from "./tools";
+
+const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+
+export type ZyronAgentTrace = {
+  step: number;
+  tool: string;
+  ok: boolean;
+  summary: string;
+};
+
+export type ZyronAgentResult = {
+  reply: string;
+  provider: ZyronAIProvider;
+  model: string;
+  routeReason: "default" | "explicit" | "automatic";
+  skills: string[];
+  trace: ZyronAgentTrace[];
+  memoriesUsed: number;
+};
+
+function clientFor(provider: ZyronAIProvider) {
+  if (provider === "openai") {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new AIProviderUnavailableError(provider);
+    return new OpenAI({ apiKey });
+  }
+  const apiKey = process.env.AI_GATEWAY_API_KEY;
+  if (!apiKey) throw new AIProviderUnavailableError(provider);
+  return new OpenAI({ apiKey, baseURL: AI_GATEWAY_BASE_URL });
+}
+
+function recentMessages(messages: ZyronAIMessage[], prompt: string): ChatCompletionMessageParam[] {
+  const recent = messages.slice(-16).map((message) => ({ ...message }));
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    if (recent[index].role === "user") {
+      recent[index].content = prompt;
+      break;
+    }
+  }
+  return recent.map((message) => ({ role: message.role, content: message.content }));
+}
+
+function maxAgentSteps() {
+  const configured = Number(process.env.ZYRON_AGENT_MAX_STEPS || 4);
+  return Math.max(1, Math.min(Number.isFinite(configured) ? configured : 4, 6));
+}
+
+function systemInstructions(input: {
+  skills: ReturnType<typeof selectAgentSkills>;
+  memory: string;
+}) {
+  return [
+    "# Núcleo agente ZYRON v0.7",
+    "Resuelve la petición completa con el mínimo número de pasos útiles.",
+    "Usa herramientas para datos reales o acciones. No inventes resultados de herramientas.",
+    "Si una herramienta devuelve ok=false, explica el bloqueo concreto y no afirmes que la acción se completó.",
+    "No hay herramientas de borrado, envío de mensajes ni cambios de permisos en este núcleo. No intentes simularlas.",
+    "Cuando ya tengas el resultado, responde directamente sin describir tu razonamiento interno.",
+    `\n# Skills activas\n${renderAgentSkills(input.skills)}`,
+    `\n# Capacidades registradas\n${toolSummary()}`,
+    `\n# Memoria privada recuperada\n${input.memory}`,
+  ].join("\n\n");
+}
+
+export async function runZyronAgent(input: { messages: ZyronAIMessage[] }): Promise<ZyronAgentResult> {
+  const lastUserMessage = [...input.messages].reverse().find((message) => message.role === "user")?.content?.trim();
+  if (!lastUserMessage) throw new Error("Falta el mensaje del usuario");
+
+  const selection = resolveAISelection(lastUserMessage);
+  const skills = selectAgentSkills(selection.prompt);
+  const memory = await buildMemoryContext(selection.prompt, 14_000).catch((error) => {
+    console.error("ZYRON_AGENT_MEMORY_ERROR", error);
+    return { context: "La memoria privada no está disponible temporalmente.", blocks: [] };
+  });
+  const conversation: ChatCompletionMessageParam[] = [
+    { role: "system", content: systemInstructions({ skills, memory: memory.context }) },
+    ...recentMessages(input.messages, selection.prompt),
+  ];
+  const client = clientFor(selection.provider);
+  const trace: ZyronAgentTrace[] = [];
+
+  for (let step = 1; step <= maxAgentSteps(); step += 1) {
+    const response = await client.chat.completions.create({
+      model: selection.model,
+      messages: conversation,
+      tools: agentToolDefinitions,
+      tool_choice: "auto",
+    });
+    const message = response.choices[0]?.message;
+    if (!message) throw new Error("El motor no ha devuelto ningún mensaje");
+    const functionCalls = (message.tool_calls ?? []).filter((call) => call.type === "function");
+
+    if (!functionCalls.length) {
+      return {
+        reply: message.content?.trim() || "No he podido construir una respuesta útil.",
+        provider: selection.provider,
+        model: selection.model,
+        routeReason: selection.routeReason,
+        skills: skills.map((skill) => skill.id),
+        trace,
+        memoriesUsed: memory.blocks.length,
+      };
+    }
+
+    const assistantMessage: ChatCompletionAssistantMessageParam = {
+      role: "assistant",
+      content: message.content ?? null,
+      tool_calls: functionCalls.map((call) => ({
+        id: call.id,
+        type: "function" as const,
+        function: { name: call.function.name, arguments: call.function.arguments },
+      })),
+    };
+    conversation.push(assistantMessage);
+
+    for (const call of functionCalls) {
+      const result = await executeAgentTool({
+        name: call.function.name,
+        arguments: call.function.arguments,
+        userMessage: selection.prompt,
+      });
+      trace.push({ step, tool: call.function.name, ok: result.ok, summary: result.summary });
+      conversation.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+    }
+  }
+
+  conversation.push({
+    role: "system",
+    content: "Has alcanzado el límite de pasos. Da ahora la mejor respuesta posible con los resultados disponibles, sin llamar a más herramientas.",
+  });
+  const finalResponse = await client.chat.completions.create({ model: selection.model, messages: conversation });
+  return {
+    reply: finalResponse.choices[0]?.message?.content?.trim() || "He agotado el límite de ejecución sin un resultado concluyente.",
+    provider: selection.provider,
+    model: selection.model,
+    routeReason: selection.routeReason,
+    skills: skills.map((skill) => skill.id),
+    trace,
+    memoriesUsed: memory.blocks.length,
+  };
+}
