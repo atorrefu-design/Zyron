@@ -118,7 +118,7 @@ export async function POST(request: Request) {
     }
 
     if (decision.kind === "fallback") {
-      const forwarded = await forward(request, "/api/chat", chatPayload);
+      const forwarded = await forward(request, "/api/agent", chatPayload);
       return NextResponse.json(
         { ...forwarded.data, capabilityId: decision.capabilityId },
         { status: forwarded.response.status },
@@ -134,14 +134,14 @@ export async function POST(request: Request) {
         );
       }
 
-      const forwarded = await forward(request, "/api/chat", chatPayload);
+      const forwarded = await forward(request, "/api/agent", chatPayload);
       return NextResponse.json(
         { ...forwarded.data, capabilityId: decision.capabilityId },
         { status: forwarded.response.status },
       );
     }
 
-    const forwarded = await forward(request, "/api/chat", chatPayload);
+    const forwarded = await forward(request, "/api/agent", chatPayload);
     return NextResponse.json(forwarded.data, { status: forwarded.response.status });
   } catch (error) {
     console.error("ZYRON_ACTION_FIRST_ERROR", error);
