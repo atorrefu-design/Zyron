@@ -4,6 +4,7 @@ import { createTask, listTasks, recordAction, setTaskCompleted } from "../db";
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "../google/calendar";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
+import { classifyAgentToolFailure } from "./tool-errors";
 
 export type ZyronAgentToolResult = {
   ok: boolean;
@@ -357,6 +358,7 @@ export async function executeAgentTool(input: {
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);
-    return { ok: false, summary: `La herramienta ${name} no está disponible temporalmente.` };
+    const failure = classifyAgentToolFailure(name, error);
+    return { ok: false, summary: failure.summary, data: { code: failure.code } };
   }
 }
