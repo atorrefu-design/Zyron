@@ -7,6 +7,33 @@ export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToo
   const message = error instanceof Error ? error.message : String(error || "unknown");
   const calendarWrite = tool === "create_calendar_event" || tool === "delete_calendar_event";
   const mapsRead = tool === "search_places" || tool === "get_driving_route";
+  const gmailRead = tool === "search_gmail" || tool === "read_gmail_message";
+
+  if (gmailRead && (
+    message.includes("google_not_connected")
+    || message.includes("gmail_scope_missing")
+    || message.includes("google_token_refresh_400")
+    || message.includes("gmail_api_401")
+  )) {
+    return {
+      code: "gmail_reconnect_required",
+      summary: "Gmail no está autorizado o la conexión de Google ha caducado. Reautoriza Google desde el panel de ZYRON.",
+    };
+  }
+
+  if (gmailRead && message.includes("gmail_api_403")) {
+    return {
+      code: "gmail_api_unavailable",
+      summary: "Google ha denegado la consulta de Gmail. Comprueba que Gmail API esté habilitada para ZYRON y vuelve a autorizar Google.",
+    };
+  }
+
+  if (gmailRead && message.includes("gmail_api_404")) {
+    return {
+      code: "gmail_message_not_found",
+      summary: "Ese correo ya no está disponible o el identificador ha caducado. Vuelve a buscarlo.",
+    };
+  }
 
   if (mapsRead && (message.includes("maps_api_key_missing") || /maps_(?:places|routes)_403/.test(message))) {
     return {
