@@ -1,4 +1,4 @@
-import { type CapabilityRoute } from "./router";
+import { type CapabilityRoute } from "./router.ts";
 
 export type CapabilityExecutionPlan = {
   capabilityId: string;
@@ -65,7 +65,7 @@ const EXECUTORS: Record<string, Omit<CapabilityExecutionPlan, "capabilityId" | "
     userMessage: "Necesito acceso al archivo concreto para analizar una grabación ya existente.",
   },
   "whatsapp.handoff": {
-    mode: "native_execute",
+    mode: "handoff",
     nativeAction: "open_whatsapp_target",
   },
   "files.authorized": {
