@@ -17,6 +17,15 @@ export type TelegramMessage = {
   chat: { id: number; type: string };
   date: number;
   text?: string;
+  voice?: TelegramVoice;
+};
+
+export type TelegramVoice = {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  mime_type?: string;
+  file_size?: number;
 };
 
 export type TelegramUpdate = {
@@ -38,6 +47,13 @@ export type TelegramWebhookInfo = {
   last_error_message?: string;
   max_connections?: number;
   allowed_updates?: string[];
+};
+
+export type TelegramFile = {
+  file_id: string;
+  file_unique_id: string;
+  file_size?: number;
+  file_path?: string;
 };
 
 type TelegramApiResponse<T> = {
@@ -136,6 +152,34 @@ export function getTelegramBot() {
 
 export function getTelegramWebhookInfo() {
   return telegramApi<TelegramWebhookInfo>("getWebhookInfo");
+}
+
+export function getTelegramFile(fileId: string) {
+  return telegramApi<TelegramFile>("getFile", { file_id: fileId });
+}
+
+export async function downloadTelegramFile(filePath: string, maxBytes: number) {
+  if (!filePath || filePath.includes("..") || !/^[A-Za-z0-9_./-]+$/.test(filePath)) {
+    throw new TelegramApiError("downloadFile", "Ruta de archivo no válida");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${TELEGRAM_API_BASE}/file/bot${requireBotToken()}/${filePath}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new TelegramApiError("downloadFile");
+  }
+
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (!response.ok || (declaredLength && declaredLength > maxBytes)) {
+    throw new TelegramApiError("downloadFile", declaredLength > maxBytes ? "Archivo demasiado grande" : undefined);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) throw new TelegramApiError("downloadFile", "Archivo demasiado grande");
+  return bytes;
 }
 
 export async function setTelegramWebhook(options?: { dropPendingUpdates?: boolean }) {
