@@ -42,6 +42,7 @@ type PushStatusResponse = { configured?: boolean; publicKey?: string; subscripti
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 function checkLabel(check: CheckResult) {
   if (!check.configured) return "Sin configurar";
@@ -222,7 +223,8 @@ export default function DashboardPage() {
   const calendarAuthorized = hasScope(google?.scope, CALENDAR_SCOPE);
   const gmailAuthorized = hasScope(google?.scope, GMAIL_SCOPE);
   const driveAuthorized = hasScope(google?.scope, DRIVE_SCOPE);
-  const googleActionLabel = !google?.connected ? "Conectar Google" : gmailAuthorized && driveAuthorized ? "Reautorizar Google" : "Ampliar permisos Google";
+  const driveWriteAuthorized = hasScope(google?.scope, DRIVE_FILE_SCOPE);
+  const googleActionLabel = !google?.connected ? "Conectar Google" : gmailAuthorized && driveAuthorized && driveWriteAuthorized ? "Reautorizar Google" : "Ampliar permisos Google";
 
   return (
     <main className="shell">
@@ -261,12 +263,13 @@ export default function DashboardPage() {
                     ? "OAuth de Google no está configurado."
                     : !google?.connected
                       ? "Conecta tu cuenta para usar Calendar y Gmail."
-                    : `Calendar: ${calendarAuthorized ? "autorizado" : "falta permiso"} · Gmail: ${gmailAuthorized ? "lectura autorizada" : "falta autorizar"} · Drive: ${driveAuthorized ? "lectura autorizada" : "falta autorizar"}`}
+                    : `Calendar: ${calendarAuthorized ? "autorizado" : "falta permiso"} · Gmail: ${gmailAuthorized ? "lectura autorizada" : "falta autorizar"} · Drive: ${driveAuthorized ? (driveWriteAuthorized ? "lectura y creación autorizadas" : "solo lectura") : "falta autorizar"}`}
                 </small>
               </div>
             </div>
             {google?.connected && !gmailAuthorized && <div className="mutedBox">Gmail está preparado, pero falta una autorización de Google. Pulsa “Autorizar Gmail” y acepta el permiso de lectura.</div>}
             {google?.connected && !driveAuthorized && <div className="mutedBox">Drive está preparado, pero falta autorizar la lectura. Pulsa “Ampliar permisos Google” y acepta el permiso de Google Drive.</div>}
+            {google?.connected && driveAuthorized && !driveWriteAuthorized && <div className="mutedBox">Drive funciona en lectura. Pulsa “Ampliar permisos Google” para permitir que ZYRON cree carpetas y documentos nuevos; no obtiene escritura global sobre todo tu Drive.</div>}
           </section>
 
           <div className="metricGrid"><div className="metricCard"><strong>{data.summary.pendingTasks}</strong><span>Tareas pendientes</span></div><div className="metricCard"><strong>{data.summary.completedTasks}</strong><span>Tareas completadas</span></div><div className="metricCard"><strong>{data.summary.activeGoals}</strong><span>Objetivos activos</span></div><div className="metricCard"><strong>{data.summary.availableTools}</strong><span>Capacidades activas</span></div></div>

@@ -6,7 +6,8 @@ const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
-export const GOOGLE_SCOPES = [CALENDAR_SCOPE, GMAIL_READONLY_SCOPE, DRIVE_READONLY_SCOPE] as const;
+export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+export const GOOGLE_SCOPES = [CALENDAR_SCOPE, GMAIL_READONLY_SCOPE, DRIVE_READONLY_SCOPE, DRIVE_FILE_SCOPE] as const;
 
 type StoredGoogleConnection = {
   provider: "google";

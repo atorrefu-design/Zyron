@@ -1,10 +1,12 @@
 import {
   buildDriveSearchQuery,
   driveContentMode,
+  DRIVE_DOC_MIME,
   DRIVE_FOLDER_MIME,
 } from "../drive-policy";
 import {
   connectionHasScope,
+  DRIVE_FILE_SCOPE,
   DRIVE_READONLY_SCOPE,
   getGoogleAccessToken,
   getGoogleConnection,
@@ -57,6 +59,25 @@ async function assertDriveReady() {
   const connection = await getGoogleConnection();
   if (!connection) throw new Error("google_not_connected");
   if (!connectionHasScope(connection.scope, DRIVE_READONLY_SCOPE)) throw new Error("drive_scope_missing");
+}
+
+async function assertDriveWriteReady() {
+  const connection = await getGoogleConnection();
+  if (!connection) throw new Error("google_not_connected");
+  if (!connectionHasScope(connection.scope, DRIVE_FILE_SCOPE)) throw new Error("drive_write_scope_missing");
+}
+
+async function driveWriteJson<T>(url: string, accessToken: string, init: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: { Authorization: `Bearer ${accessToken}`, ...(init.headers || {}) },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`drive_write_${response.status}${detail ? `:${detail.slice(0, 220)}` : ""}`);
+  }
+  return response.json() as Promise<T>;
 }
 
 async function driveJson<T>(path: string, accessToken: string): Promise<T> {
@@ -123,4 +144,56 @@ export async function readDriveFile(fileId: string): Promise<DriveFileContent> {
     truncated: text.length > MAX_DRIVE_EXCERPT_CHARS,
     contentTrust: "untrusted_drive_file",
   };
+}
+
+export async function createDriveFolder(name: string, parentFolderId?: string | null): Promise<DriveFile> {
+  await assertDriveWriteReady();
+  const accessToken = await getGoogleAccessToken();
+  const fields = encodeURIComponent("id,name,mimeType,modifiedTime,size,webViewLink");
+  const metadata = {
+    name,
+    mimeType: DRIVE_FOLDER_MIME,
+    ...(parentFolderId ? { parents: [parentFolderId] } : {}),
+  };
+  const file = await driveWriteJson<DriveFileResponse>(`${DRIVE_API}/files?fields=${fields}`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(metadata),
+  });
+  return mappedFile(file);
+}
+
+export async function createDriveDocument(input: {
+  name: string;
+  content: string;
+  parentFolderId?: string | null;
+  format: "google_doc" | "text";
+}): Promise<DriveFile> {
+  await assertDriveWriteReady();
+  const accessToken = await getGoogleAccessToken();
+  const boundary = `zyron_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const metadata = {
+    name: input.name,
+    mimeType: input.format === "google_doc" ? DRIVE_DOC_MIME : "text/plain",
+    ...(input.parentFolderId ? { parents: [input.parentFolderId] } : {}),
+  };
+  const body = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    input.content,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+  const fields = encodeURIComponent("id,name,mimeType,modifiedTime,size,webViewLink");
+  const file = await driveWriteJson<DriveFileResponse>(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=${fields}`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  return mappedFile(file);
 }
