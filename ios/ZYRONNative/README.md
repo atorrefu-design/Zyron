@@ -76,3 +76,4 @@ Una vez validado el audio bloqueado:
 3. Aplicar `VoiceEngagementClassifier` antes de abrir Realtime.
 4. Validar frases directas y menciones casuales.
 5. Añadir recuperación automática tras llamadas, interrupciones de Siri y cambios de Bluetooth.
+6. Autorizar Contactos desde la tarjeta nativa y validar llamada, WhatsApp y SMS con el Gate 7 de \`ACCEPTANCE.md\`.
