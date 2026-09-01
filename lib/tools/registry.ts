@@ -5,6 +5,7 @@ export type ZyronToolName =
   | "planner"
   | "calendar"
   | "gmail"
+  | "drive"
   | "proactive"
   | "maps"
   | "notifications";
@@ -89,6 +90,15 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
       requiresConfirmation: false,
       status: googleReady ? "available" : "needs_configuration",
       configurationHint: "Configurar Google OAuth y autorizar el scope gmail.readonly.",
+    },
+    drive: {
+      name: "drive",
+      description: "Busca y consulta archivos del Google Drive conectado en modo privado de solo lectura.",
+      permissions: ["owner_session", "google_oauth", "drive.readonly"],
+      canWrite: false,
+      requiresConfirmation: false,
+      status: googleReady ? "available" : "needs_configuration",
+      configurationHint: "Configurar Google OAuth, habilitar Drive API y autorizar el scope drive.readonly.",
     },
     proactive: {
       name: "proactive",
