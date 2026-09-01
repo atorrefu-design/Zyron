@@ -130,6 +130,7 @@ function extractWhatsAppTarget(input: string): NativePayload {
   const payload: NativePayload = {};
 
   const messagePatterns = [
+    /(?:manda|envia|envía|escribe)\s+(?:a|para)\s+(.+?)\s+(?:por\s+)?(?:whatsapp|whatsap|watsap)\s*(?:diciendo|que diga|con el mensaje|que|[:,-])\s*[“"]?(.+?)[”"]?$/i,
     /(?:manda|envia|envía|escribe)\s+(?:un\s+)?(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s+(?:diciendo|que diga|con el mensaje)\s+[“"]?(.+?)[”"]?$/i,
     /(?:whatsapp|whatsap|watsap)\s+(?:a|para)\s+(.+?)\s*[:,-]\s*(.+)$/i,
   ];
