@@ -66,7 +66,7 @@ function explicitlyRequestsMemory(message: string) {
 
 export function explicitlyConfirmsAgentAction(message: string) {
   const clean = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-  return /^(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|guardalo|crea(?:\s+el)?\s+evento|crea(?:\s+la)?\s+carpeta|crea(?:\s+el)?\s+documento|guarda(?:\s+el)?\s+documento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[,.!]|\s|$)/.test(clean);
+  return /^(?:si[,.!]?\s+crea(?:[,.!]|\s|$)|(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|guardalo|crea(?:\s+el)?\s+evento|crea(?:\s+la)?\s+carpeta|crea(?:\s+el)?\s+documento|guarda(?:\s+el)?\s+documento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[,.!]|\s|$))/.test(clean);
 }
 
 export const explicitlyConfirmsCalendarAction = explicitlyConfirmsAgentAction;
