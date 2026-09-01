@@ -1,5 +1,5 @@
-import { buildCapabilityExecutionPlan, type CapabilityExecutionPlan } from "./executor";
-import { routeCapabilities, type CapabilityRoute } from "./router";
+import { buildCapabilityExecutionPlan, type CapabilityExecutionPlan } from "./executor.ts";
+import { routeCapabilities, type CapabilityRoute } from "./router.ts";
 
 export type ZyronClientDirective =
   | {

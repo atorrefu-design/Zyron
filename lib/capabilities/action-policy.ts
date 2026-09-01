@@ -1,4 +1,4 @@
-import type { ZyronCapabilityResolution } from "./resolve";
+import type { ZyronCapabilityResolution } from "./resolve.ts";
 
 export type ActionDecision =
   | { kind: "execute"; capabilityId: string; transport: "server" | "native"; target: string }

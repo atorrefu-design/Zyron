@@ -38,7 +38,7 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    func openWhatsApp(target: String? = nil, message: String? = nil) async -> Bool {
+    func openWhatsApp(target: String? = nil, message: String? = nil) async throws -> Bool {
         let cleanTarget = target?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -47,8 +47,7 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
             if cleanTarget.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
                 phone = sanitizePhone(cleanTarget)
             } else {
-                do { phone = try await resolvePhoneNumber(for: cleanTarget) }
-                catch { return false }
+                phone = try await resolvePhoneNumber(for: cleanTarget)
             }
             guard !phone.isEmpty else { return false }
         }
@@ -91,7 +90,7 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return false
     }
 
-    func call(target rawTarget: String) async -> Bool {
+    func call(target rawTarget: String) async throws -> Bool {
         let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
 
@@ -99,8 +98,7 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         if target.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
             phone = sanitizePhone(target)
         } else {
-            do { phone = try await resolvePhoneNumber(for: target) }
-            catch { return false }
+            phone = try await resolvePhoneNumber(for: target)
         }
         guard !phone.isEmpty, let url = URL(string: "tel:\(phone)") else { return false }
         let opened = await openURL(url)
@@ -108,7 +106,7 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return opened
     }
 
-    func composeSMS(target rawTarget: String, message: String?) async -> Bool {
+    func composeSMS(target rawTarget: String, message: String?) async throws -> Bool {
         let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
 
@@ -116,8 +114,7 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         if target.range(of: #"^\+?[0-9 ()-]{6,}$"#, options: .regularExpression) != nil {
             phone = sanitizePhone(target)
         } else {
-            do { phone = try await resolvePhoneNumber(for: target) }
-            catch { return false }
+            phone = try await resolvePhoneNumber(for: target)
         }
 
         guard !phone.isEmpty else { return false }
@@ -277,23 +274,41 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
     private func resolvePhoneNumber(for name: String) async throws -> String {
         try await NativePermissionGate.shared.run(requiring: .contacts) {
             let store = CNContactStore()
-            let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor]
+            let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor]
             let request = CNContactFetchRequest(keysToFetch: keys)
             let needle = self.normalize(name)
-            var bestMatch: CNContact?
-            try store.enumerateContacts(with: request) { contact, stop in
+            var exactMatches = [CNContact]()
+            var partialMatches = [CNContact]()
+            try store.enumerateContacts(with: request) { contact, _ in
                 let fullName = self.normalize("\(contact.givenName) \(contact.familyName)")
-                if fullName == needle {
-                    bestMatch = contact
-                    stop.pointee = true
-                } else if bestMatch == nil && (fullName.contains(needle) || needle.contains(fullName)) {
-                    bestMatch = contact
+                let nickname = self.normalize(contact.nickname)
+                let searchable = [fullName, nickname].filter { !$0.isEmpty }
+                if searchable.contains(needle) {
+                    exactMatches.append(contact)
+                } else if searchable.contains(where: { $0.contains(needle) || needle.contains($0) }) {
+                    partialMatches.append(contact)
                 }
             }
-            guard let number = bestMatch?.phoneNumbers.first?.value.stringValue else {
+
+            let matches = exactMatches.isEmpty ? partialMatches : exactMatches
+            guard !matches.isEmpty else {
                 throw NativeDeviceActionError.contactPhoneUnavailable
             }
-            return self.sanitizePhone(number)
+            guard matches.count == 1, let contact = matches.first else {
+                let names = matches.prefix(3).map { contact in
+                    let fullName = "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespacesAndNewlines)
+                    return fullName.isEmpty ? contact.nickname : fullName
+                }.filter { !$0.isEmpty }.joined(separator: ", ")
+                throw NativeDeviceActionError.contactAmbiguous(names)
+            }
+
+            let numbers = Array(Set(contact.phoneNumbers.map { self.sanitizePhone($0.value.stringValue) }.filter { !$0.isEmpty }))
+            guard numbers.count == 1, let number = numbers.first else {
+                if numbers.isEmpty { throw NativeDeviceActionError.contactPhoneUnavailable }
+                let displayName = "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespacesAndNewlines)
+                throw NativeDeviceActionError.contactPhoneAmbiguous(displayName.isEmpty ? contact.nickname : displayName)
+            }
+            return number
         }
     }
 
@@ -337,6 +352,8 @@ enum NativeDeviceActionError: LocalizedError {
     case locationUnavailable
     case whatsappUnavailable
     case contactPhoneUnavailable
+    case contactAmbiguous(String)
+    case contactPhoneAmbiguous(String)
     case personalPlaceUnavailable
     case appUnavailable
     case urlUnavailable
@@ -350,6 +367,12 @@ enum NativeDeviceActionError: LocalizedError {
         case .locationUnavailable: return "No he podido obtener la ubicación actual."
         case .whatsappUnavailable: return "No he podido abrir WhatsApp en este iPhone."
         case .contactPhoneUnavailable: return "No he encontrado un número de teléfono utilizable para ese contacto."
+        case let .contactAmbiguous(names):
+            return names.isEmpty
+                ? "He encontrado varios contactos posibles. Indica el nombre completo."
+                : "He encontrado varios contactos posibles: \(names). Indica cuál quieres."
+        case let .contactPhoneAmbiguous(name):
+            return "\(name) tiene varios números. Indica cuál quieres usar desde Contactos."
         case .personalPlaceUnavailable: return "No he encontrado esa dirección personal en tu ficha de contacto."
         case .appUnavailable: return "No he podido abrir esa aplicación."
         case .urlUnavailable: return "No he podido abrir ese enlace o aplicación."

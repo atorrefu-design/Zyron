@@ -191,15 +191,23 @@ final class NativeActionDispatcher {
 
         register("phone.call") { envelope in
             let target = envelope.payload?["target"] ?? envelope.input ?? ""
-            let opened = await NativeDeviceActions.shared.call(target: target)
-            return Result(handled: true, succeeded: opened, reply: opened ? "Llamada preparada." : NativeDeviceActionError.callUnavailable.localizedDescription, value: nil)
+            do {
+                let opened = try await NativeDeviceActions.shared.call(target: target)
+                return Result(handled: true, succeeded: opened, reply: opened ? "Llamada preparada." : NativeDeviceActionError.callUnavailable.localizedDescription, value: nil)
+            } catch {
+                return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
+            }
         }
 
         register("messages.sms") { envelope in
             let target = envelope.payload?["target"] ?? ""
             let message = envelope.payload?["message"] ?? envelope.input
-            let opened = await NativeDeviceActions.shared.composeSMS(target: target, message: message)
-            return Result(handled: true, succeeded: opened, reply: opened ? "Mensaje preparado." : NativeDeviceActionError.smsUnavailable.localizedDescription, value: nil)
+            do {
+                let opened = try await NativeDeviceActions.shared.composeSMS(target: target, message: message)
+                return Result(handled: true, succeeded: opened, reply: opened ? "Mensaje preparado. Pulsa Enviar en Mensajes para confirmarlo." : NativeDeviceActionError.smsUnavailable.localizedDescription, value: nil)
+            } catch {
+                return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
+            }
         }
 
         register("media.play") { envelope in
@@ -239,14 +247,18 @@ final class NativeActionDispatcher {
         register("open_whatsapp_target") { envelope in
             let target = envelope.payload?["target"]
             let message = envelope.payload?["message"]
-            let opened = await NativeDeviceActions.shared.openWhatsApp(target: target, message: message)
-            let reply: String
-            if opened {
-                if let target, !target.isEmpty {
-                    reply = message?.isEmpty == false ? "Chat de WhatsApp preparado." : "Chat de WhatsApp abierto."
-                } else { reply = "WhatsApp abierto." }
-            } else { reply = NativeDeviceActionError.whatsappUnavailable.localizedDescription }
-            return Result(handled: true, succeeded: opened, reply: reply, value: nil)
+            do {
+                let opened = try await NativeDeviceActions.shared.openWhatsApp(target: target, message: message)
+                let reply: String
+                if opened {
+                    if let target, !target.isEmpty {
+                        reply = message?.isEmpty == false ? "Chat de WhatsApp preparado. Pulsa Enviar para confirmarlo." : "Chat de WhatsApp abierto."
+                    } else { reply = "WhatsApp abierto." }
+                } else { reply = NativeDeviceActionError.whatsappUnavailable.localizedDescription }
+                return Result(handled: true, succeeded: opened, reply: reply, value: nil)
+            } catch {
+                return Result(handled: true, succeeded: false, reply: error.localizedDescription, value: nil)
+            }
         }
 
         register("open_url") { envelope in

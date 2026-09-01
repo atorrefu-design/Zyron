@@ -1,4 +1,4 @@
-import { zyronCapabilities, type ZyronCapability } from "./registry";
+import { zyronCapabilities, type ZyronCapability } from "./registry.ts";
 
 export type CapabilityRoute = {
   capability: ZyronCapability;

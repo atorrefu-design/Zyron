@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var controller: ZyronAppController
@@ -24,6 +25,7 @@ struct ContentView: View {
 
                     if controller.isAuthenticated {
                         conversationCard
+                        contactsCard
                         alwaysOnCard
                         acceptanceCard
                         latestReplyCard
@@ -279,6 +281,66 @@ struct ContentView: View {
             }
         }
         .zyronCard()
+    }
+
+    private var contactsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                cardTitle("Contactos y comunicaciones", icon: "person.crop.circle.badge.checkmark")
+                Spacer()
+                Text(contactsStatusLabel)
+                    .font(.caption2.bold())
+                    .foregroundStyle(contactsStatusColor)
+            }
+
+            Text("Permite que ZYRON resuelva un nombre antes de preparar una llamada, un SMS o un chat de WhatsApp. Los mensajes quedan abiertos para que tú pulses Enviar.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            switch controller.contactsAuthorization {
+            case .notDetermined:
+                Button {
+                    Task { await controller.authorizeContacts() }
+                } label: {
+                    Label("Autorizar contactos", systemImage: "person.crop.circle.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ZyronSecondaryButtonStyle())
+                .disabled(controller.isBusy)
+            case .denied:
+                Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
+                    Label("Abrir Ajustes", systemImage: "gearshape.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ZyronSecondaryButtonStyle())
+            case .limited:
+                Label("ZYRON solo ve los contactos seleccionados en iOS.", systemImage: "checkmark.shield.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.green)
+            case .full:
+                Label("Acceso a Contactos concedido.", systemImage: "checkmark.shield.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.green)
+            }
+        }
+        .zyronCard()
+    }
+
+    private var contactsStatusLabel: String {
+        switch controller.contactsAuthorization {
+        case .full: return "AUTORIZADO"
+        case .limited: return "LIMITADO"
+        case .denied: return "BLOQUEADO"
+        case .notDetermined: return "PENDIENTE"
+        }
+    }
+
+    private var contactsStatusColor: Color {
+        switch controller.contactsAuthorization {
+        case .full, .limited: return .green
+        case .denied: return .orange
+        case .notDetermined: return .secondary
+        }
     }
 
     private var acceptanceCard: some View {

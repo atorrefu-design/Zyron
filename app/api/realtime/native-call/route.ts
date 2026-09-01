@@ -42,6 +42,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
 "Nunca verbalices que vas a consultar, comprobar, buscar o usar una herramienta. Ejecuta las herramientas en silencio y responde directamente con el resultado, sin frases como «déjame comprobarlo», «voy a consultarlo» o similares.",
 "Cuando necesites llamar a una herramienta, no generes ninguna frase ni audio antes de la llamada: la llamada a la herramienta debe ser tu primera acción. Si Aarón pregunta únicamente qué hora es, después de obtener el dato responde únicamente «Son las HH:MM», sin día, fecha, contexto ni ninguna otra frase.",
       "Cuando Aarón pida tiendas, restaurantes, negocios, servicios o lugares físicos reales, usa buscar_lugares_reales. Nunca inventes una dirección ni afirmes que un negocio existe sin consultar esa herramienta.",
+      "Cuando Aarón pida llamar a alguien, preparar un SMS o WhatsApp, abrir una app, reproducir música o iniciar navegación en el iPhone, usa ejecutar_accion_iphone. La herramienta aplica permisos, resolución de contactos y traspasos seguros; no afirmes que se ha enviado un mensaje ni que una llamada ha comenzado si solo se ha preparado.",
       "Si Aarón indica una ciudad, barrio o zona, basta con esa ubicación para buscar lugares reales; no le exijas una calle concreta. Si dice cerca de mí, usa la búsqueda de lugares y deja que ZYRON aplique la ubicación actual del iPhone.",
       "Al responder con lugares, di nombre y dirección de forma natural. No leas URLs salvo que Aarón las pida.",
     ].join(" "),
@@ -91,6 +92,22 @@ function buildRealtimeSession(outputMode: OutputMode) {
             query: {
               type: "string",
               description: "Qué lugar busca Aarón y la zona indicada.",
+            },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
+      },
+      {
+        type: "function",
+        name: "ejecutar_accion_iphone",
+        description: "Resuelve y ejecuta de forma segura una acción compatible del iPhone: preparar una llamada, SMS o WhatsApp, abrir una app, reproducir música o iniciar navegación. Conserva siempre la petición completa.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "La orden completa de Aarón, incluyendo destinatario, aplicación, mensaje o destino.",
             },
           },
           required: ["query"],

@@ -45,6 +45,30 @@ final class RealtimeToolRouter {
                 )
                 return RealtimeToolOutput(callID: call.callID, output: reply)
 
+            case "ejecutar_accion_iphone":
+                let directive = try await NativeAPIClient.shared.resolveNativeAction(
+                    query,
+                    deviceLocation: location
+                )
+                guard directive.mode == "native_execute", let action = directive.action else {
+                    let detail = directive.message ?? directive.reply ?? directive.error ?? "Esta acción todavía no está disponible en el iPhone."
+                    return RealtimeToolOutput(callID: call.callID, output: detail)
+                }
+                let envelope = NativeActionEnvelope(
+                    action: action,
+                    input: directive.input ?? query,
+                    capabilityId: directive.capabilityId,
+                    payload: directive.payload
+                )
+                let result = await NativeActionDispatcher.shared.execute(envelope)
+                guard result.handled else {
+                    return RealtimeToolOutput(callID: call.callID, output: "El companion todavía no reconoce esta acción.")
+                }
+                return RealtimeToolOutput(
+                    callID: call.callID,
+                    output: result.reply ?? (result.succeeded ? "Hecho." : "El iPhone no ha podido preparar la acción.")
+                )
+
             default:
                 return RealtimeToolOutput(
                     callID: call.callID,
@@ -53,9 +77,10 @@ final class RealtimeToolRouter {
             }
         } catch {
             let detail = error.localizedDescription
-            let prefix = call.name == "buscar_lugares_reales"
-                ? "No he podido buscar lugares reales"
-                : "No he podido consultar el núcleo privado"
+            let prefix: String
+            if call.name == "buscar_lugares_reales" { prefix = "No he podido buscar lugares reales" }
+            else if call.name == "ejecutar_accion_iphone" { prefix = "No he podido preparar la acción en el iPhone" }
+            else { prefix = "No he podido consultar el núcleo privado" }
             return RealtimeToolOutput(
                 callID: call.callID,
                 output: "\(prefix): \(detail)."

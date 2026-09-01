@@ -53,6 +53,7 @@ targets:
         NSMicrophoneUsageDescription: ZYRON necesita el micrófono para detectar su nombre y conversar contigo.
         NSSpeechRecognitionUsageDescription: ZYRON usa reconocimiento local para distinguir cuándo le estás llamando.
         NSLocationWhenInUseUsageDescription: ZYRON usa tu ubicación solo cuando una consulta necesita resultados cercanos.
+        NSContactsUsageDescription: ZYRON usa únicamente los contactos que autorices para resolver destinatarios y preparar llamadas o mensajes; nunca los envía automáticamente.
         UIBackgroundModes:
           - audio
 
