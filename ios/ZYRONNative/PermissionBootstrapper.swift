@@ -19,6 +19,15 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         case photos
     }
 
+    enum ContactsAuthorization: String, Equatable {
+        case full
+        case limited
+        case denied
+        case notDetermined
+
+        var granted: Bool { self == .full || self == .limited }
+    }
+
     struct Snapshot: Equatable {
         let granted: Set<PermissionKind>
         let denied: Set<PermissionKind>
@@ -62,11 +71,10 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         @unknown default: notDetermined.insert(.location)
         }
 
-        switch CNContactStore.authorizationStatus(for: .contacts) {
-        case .authorized: granted.insert(.contacts)
-        case .denied, .restricted: denied.insert(.contacts)
+        switch contactsAuthorization() {
+        case .full, .limited: granted.insert(.contacts)
+        case .denied: denied.insert(.contacts)
         case .notDetermined: notDetermined.insert(.contacts)
-        @unknown default: notDetermined.insert(.contacts)
         }
 
         switch EKEventStore.authorizationStatus(for: .event) {
@@ -84,6 +92,17 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
         }
 
         return Snapshot(granted: granted, denied: denied, notDetermined: notDetermined)
+    }
+
+    func contactsAuthorization() -> ContactsAuthorization {
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        if #available(iOS 18.0, *), status == .limited { return .limited }
+        switch status {
+        case .authorized: return .full
+        case .denied, .restricted: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .notDetermined
+        }
     }
 
     /// Requests one permission only if iOS has not already made a decision.
