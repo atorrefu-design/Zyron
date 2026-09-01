@@ -12,6 +12,7 @@ final class ZyronAppController: ObservableObject {
     @Published private(set) var latestText = ""
     @Published private(set) var statusMessage: String
     @Published private(set) var cloudCoreOnline: Bool? = nil
+    @Published private(set) var contactsAuthorization: PermissionBootstrapper.ContactsAuthorization = .notDetermined
 
     private static let alwaysOnPreferenceKey = "zyron.always-on-enabled"
 
@@ -65,6 +66,7 @@ final class ZyronAppController: ObservableObject {
             UserDefaults.standard.set(false, forKey: "zyron.intent.start-voice")
         }
         await refreshCloudStatus()
+        await refreshNativePermissions()
         isAuthenticated = apiClient.hasOwnerSession
         hasStoredPicovoiceKey = KeychainStore.picovoiceAccessKey() != nil
 
@@ -119,6 +121,29 @@ final class ZyronAppController: ObservableObject {
             cloudCoreOnline = health.ok
         } catch {
             cloudCoreOnline = false
+        }
+    }
+
+    func refreshNativePermissions() async {
+        contactsAuthorization = PermissionBootstrapper.shared.contactsAuthorization()
+    }
+
+    func authorizeContacts() async {
+        isBusy = true
+        statusMessage = "Esperando la autorización de Contactos…"
+        _ = await PermissionBootstrapper.shared.request(.contacts)
+        await refreshNativePermissions()
+        isBusy = false
+
+        switch contactsAuthorization {
+        case .full:
+            statusMessage = "Contactos autorizados. ZYRON puede resolver destinatarios en este iPhone."
+        case .limited:
+            statusMessage = "Acceso limitado activo. ZYRON solo puede resolver los contactos que has seleccionado."
+        case .denied:
+            statusMessage = "Contactos bloqueados. Puedes cambiarlo desde Ajustes de iOS."
+        case .notDetermined:
+            statusMessage = "iOS no ha completado la autorización de Contactos."
         }
     }
 
