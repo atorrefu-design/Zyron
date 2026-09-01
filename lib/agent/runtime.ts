@@ -71,6 +71,7 @@ function systemInstructions(input: {
     "Si una herramienta devuelve ok=false, explica el bloqueo concreto y no afirmes que la acción se completó.",
     "Para crear o eliminar un evento, muestra primero un resumen claro y pide confirmación. Solo llama a la herramienta de escritura cuando el último mensaje de Aarón confirme la acción.",
     "La eliminación de eventos solo afecta a Google Calendar. No hay herramientas de envío de mensajes ni cambios de permisos en este núcleo.",
+    "Aarón ha desactivado todos los procesos en segundo plano. No programes ni ofrezcas reintentos automáticos, tareas automáticas, avisos o seguimientos salvo que él lo solicite expresamente.",
     `Fecha y hora actual de referencia: ${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", dateStyle: "full", timeStyle: "long" }).format(new Date())}.`,
     "Cuando ya tengas el resultado, responde directamente sin describir tu razonamiento interno.",
     `\n# Skills activas\n${renderAgentSkills(input.skills)}`,
