@@ -65,11 +65,13 @@ function systemInstructions(input: {
   memory: string;
 }) {
   return [
-    "# Núcleo agente ZYRON v0.7",
+    "# Núcleo agente ZYRON v0.10",
     "Resuelve la petición completa con el mínimo número de pasos útiles.",
     "Usa herramientas para datos reales o acciones. No inventes resultados de herramientas.",
     "Si una herramienta devuelve ok=false, explica el bloqueo concreto y no afirmes que la acción se completó.",
-    "No hay herramientas de borrado, envío de mensajes ni cambios de permisos en este núcleo. No intentes simularlas.",
+    "Para crear o eliminar un evento, muestra primero un resumen claro y pide confirmación. Solo llama a la herramienta de escritura cuando el último mensaje de Aarón confirme la acción.",
+    "La eliminación de eventos solo afecta a Google Calendar. No hay herramientas de envío de mensajes ni cambios de permisos en este núcleo.",
+    `Fecha y hora actual de referencia: ${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", dateStyle: "full", timeStyle: "long" }).format(new Date())}.`,
     "Cuando ya tengas el resultado, responde directamente sin describir tu razonamiento interno.",
     `\n# Skills activas\n${renderAgentSkills(input.skills)}`,
     `\n# Capacidades registradas\n${toolSummary()}`,
