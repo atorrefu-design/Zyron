@@ -7,8 +7,8 @@ import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from ".
 import { buildNavigationLinks, validSharedLocation } from "../maps-links";
 import { normalizeGmailQuery, validGmailMessageId } from "../gmail-query";
 import { compactSender, listGmailMessages, readGmailMessage } from "../google/gmail";
-import { readDriveFile, searchDriveFiles } from "../google/drive";
-import { normalizeDriveSearch, validDriveFileId } from "../drive-policy";
+import { createDriveDocument, createDriveFolder, readDriveFile, searchDriveFiles } from "../google/drive";
+import { normalizeDriveContent, normalizeDriveName, normalizeDriveSearch, validDriveFileId } from "../drive-policy";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 import { classifyAgentToolFailure } from "./tool-errors";
@@ -258,6 +258,42 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
           file_id: { type: "string", description: "Identificador exacto obtenido mediante search_drive." },
         },
         required: ["file_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_drive_folder",
+      description: "Crea una carpeta en Google Drive solo después de que ZYRON haya mostrado nombre y ubicación y Aarón lo confirme en un mensaje posterior.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Nombre exacto de la carpeta, máximo 240 caracteres." },
+          parent_folder_id: { type: ["string", "null"], description: "ID exacto de la carpeta de destino o null para Mi unidad." },
+        },
+        required: ["name", "parent_folder_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_drive_document",
+      description: "Crea un Google Doc o archivo de texto solo después de mostrar nombre, contenido, formato y ubicación y recibir confirmación posterior de Aarón.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Nombre exacto del documento, máximo 240 caracteres." },
+          content: { type: "string", description: "Contenido completo previamente mostrado a Aarón, máximo 50000 caracteres." },
+          parent_folder_id: { type: ["string", "null"], description: "ID exacto de la carpeta de destino o null para Mi unidad." },
+          format: { type: "string", enum: ["google_doc", "text"], description: "Formato final solicitado." },
+        },
+        required: ["name", "content", "parent_folder_id", "format"],
         additionalProperties: false,
       },
     },
@@ -551,6 +587,44 @@ async function readAgentDriveFile(args: Record<string, unknown>): Promise<ZyronA
   };
 }
 
+function driveParent(args: Record<string, unknown>) {
+  const value = args.parent_folder_id;
+  if (value === null || value === undefined || value === "") return null;
+  return validDriveFileId(value) ? value : undefined;
+}
+
+async function createAgentDriveFolder(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const name = normalizeDriveName(args.name);
+  const parentFolderId = driveParent(args);
+  if (!name) return { ok: false, summary: "Indica un nombre válido para la carpeta." };
+  if (parentFolderId === undefined) return { ok: false, summary: "La carpeta de destino no es válida; vuelve a localizarla antes de confirmar." };
+  const folder = await createDriveFolder(name, parentFolderId);
+  await audit("drive_folder_created", "Creó una carpeta en Drive tras confirmación explícita del propietario.", { destination: parentFolderId ? "selected_folder" : "my_drive" });
+  return {
+    ok: true,
+    summary: `Carpeta creada en Drive: ${folder.name}.`,
+    data: { id: folder.id, name: folder.name, webViewLink: folder.webViewLink, destination: parentFolderId ? "selected_folder" : "my_drive" },
+  };
+}
+
+async function createAgentDriveDocument(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const name = normalizeDriveName(args.name);
+  const content = normalizeDriveContent(args.content);
+  const parentFolderId = driveParent(args);
+  const format = args.format === "text" ? "text" : args.format === "google_doc" ? "google_doc" : null;
+  if (!name) return { ok: false, summary: "Indica un nombre válido para el documento." };
+  if (!content) return { ok: false, summary: "El documento está vacío; muestra primero el contenido que se guardará." };
+  if (!format) return { ok: false, summary: "El formato debe ser Google Doc o texto." };
+  if (parentFolderId === undefined) return { ok: false, summary: "La carpeta de destino no es válida; vuelve a localizarla antes de confirmar." };
+  const document = await createDriveDocument({ name, content, parentFolderId, format });
+  await audit("drive_document_created", "Creó un documento en Drive tras confirmación explícita del propietario.", { format, destination: parentFolderId ? "selected_folder" : "my_drive" });
+  return {
+    ok: true,
+    summary: `Documento creado en Drive: ${document.name}.`,
+    data: { id: document.id, name: document.name, mimeType: document.mimeType, webViewLink: document.webViewLink, destination: parentFolderId ? "selected_folder" : "my_drive" },
+  };
+}
+
 export async function executeAgentTool(input: {
   name: string;
   arguments: string;
@@ -629,6 +703,8 @@ export async function executeAgentTool(input: {
     if (name === "read_gmail_message") return await readAgentGmailMessage(args);
     if (name === "search_drive") return await searchAgentDrive(args);
     if (name === "read_drive_file") return await readAgentDriveFile(args);
+    if (name === "create_drive_folder") return await createAgentDriveFolder(args);
+    if (name === "create_drive_document") return await createAgentDriveDocument(args);
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);
