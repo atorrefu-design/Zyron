@@ -1,6 +1,8 @@
 export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 export const DRIVE_DOC_MIME = "application/vnd.google-apps.document";
 export const DRIVE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+export const MAX_DRIVE_NAME_CHARS = 240;
+export const MAX_DRIVE_CREATE_CHARS = 50_000;
 
 export function normalizeDriveSearch(value: unknown) {
   if (typeof value !== "string") return "";
@@ -20,6 +22,16 @@ export function buildDriveSearchQuery(value: unknown) {
 
 export function validDriveFileId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{10,200}$/.test(value);
+}
+
+export function normalizeDriveName(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_DRIVE_NAME_CHARS);
+}
+
+export function normalizeDriveContent(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\u0000/g, "").slice(0, MAX_DRIVE_CREATE_CHARS);
 }
 
 export function driveContentMode(mimeType: string) {
