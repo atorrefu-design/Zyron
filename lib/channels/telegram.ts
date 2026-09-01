@@ -18,6 +18,14 @@ export type TelegramMessage = {
   date: number;
   text?: string;
   voice?: TelegramVoice;
+  location?: TelegramLocation;
+};
+
+export type TelegramLocation = {
+  latitude: number;
+  longitude: number;
+  horizontal_accuracy?: number;
+  live_period?: number;
 };
 
 export type TelegramVoice = {

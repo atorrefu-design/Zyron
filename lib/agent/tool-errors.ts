@@ -6,6 +6,21 @@ export type ZyronToolFailure = {
 export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToolFailure {
   const message = error instanceof Error ? error.message : String(error || "unknown");
   const calendarWrite = tool === "create_calendar_event" || tool === "delete_calendar_event";
+  const mapsRead = tool === "search_places" || tool === "get_driving_route";
+
+  if (mapsRead && (message.includes("maps_api_key_missing") || /maps_(?:places|routes)_403/.test(message))) {
+    return {
+      code: "maps_configuration_required",
+      summary: "Google Maps no está autorizado para esta operación. Revisa la clave y las APIs Routes/Places en la configuración de ZYRON.",
+    };
+  }
+
+  if (mapsRead && (message.includes("maps_route_unavailable") || message.includes("ZERO_RESULTS"))) {
+    return {
+      code: "maps_route_unavailable",
+      summary: "Google Maps no ha encontrado una ruta en coche para ese origen y destino.",
+    };
+  }
 
   if (calendarWrite && (
     message.includes("google_not_connected")

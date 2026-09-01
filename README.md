@@ -34,4 +34,4 @@ El chat usa OpenAI de forma predeterminada. Con `AI_GATEWAY_API_KEY` configurada
 
 ## Estado
 
-El repositorio ya contiene backend, health check, núcleo agente con herramientas, orquestación de voz, memoria persistente propia, gateway seguro de Telegram y trabajo nativo iOS. El agente puede consultar tareas y calendario, crear y completar tareas, y crear o eliminar eventos de Google Calendar tras una confirmación explícita. La memoria no depende de ChatGPT ni de un proveedor de modelos: vive en la misma base PostgreSQL privada que utiliza el núcleo.
+El repositorio ya contiene backend, health check, núcleo agente con herramientas, orquestación de voz, memoria persistente propia, gateway seguro de Telegram y trabajo nativo iOS. El agente puede consultar tareas y calendario, crear y completar tareas, crear o eliminar eventos de Google Calendar tras una confirmación explícita, buscar lugares y calcular rutas en coche con tráfico desde una ubicación compartida. La memoria no depende de ChatGPT ni de un proveedor de modelos: vive en la misma base PostgreSQL privada que utiliza el núcleo.

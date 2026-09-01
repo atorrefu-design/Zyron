@@ -4,6 +4,7 @@ export type ZyronAgentSkillId =
   | "memory"
   | "productivity"
   | "calendar"
+  | "maps"
   | "device";
 
 export type ZyronAgentSkill = {
@@ -70,7 +71,19 @@ const SKILLS: readonly ZyronAgentSkill[] = [
     triggers: [/agenda|calendario|evento|reuni[oó]n|cita|hoy|ma[nñ]ana|semana/i],
     instructions: [
       "Consulta la agenda con la herramienta antes de responder sobre eventos reales.",
-      "Este núcleo agente solo lee calendario; las modificaciones siguen el ejecutor transaccional con confirmación.",
+      "Las modificaciones de agenda requieren resumen previo y confirmación explícita en un mensaje posterior.",
+    ],
+  },
+  {
+    id: "maps",
+    label: "Rutas y lugares",
+    description: "Busca lugares y calcula rutas reales con tráfico.",
+    triggers: [/ruta|tr[aá]fico|tard[oa]|salir|llegar|gasolinera|restaurante|lugar|cerca|maps|waze|desde aqu[ií]|ll[eé]vame/i],
+    instructions: [
+      "Usa Places o Routes antes de responder con lugares, distancias, tráfico u horas de salida reales.",
+      "El transporte predeterminado de Aarón es el coche y Google Maps es su navegador predeterminado; ofrece Waze si lo pide.",
+      "Para «desde aquí» o «cerca de mí», usa únicamente una ubicación compartida por el dispositivo en la conversación. Si no existe, pídele que comparta su ubicación; nunca supongas que está en casa.",
+      "Los alias casa, oficina/Asvall y Brafa se resuelven con la memoria privada; si un destino sigue siendo ambiguo, pregunta antes de calcular.",
     ],
   },
   {
