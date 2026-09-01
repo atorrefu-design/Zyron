@@ -8,6 +8,7 @@ export type CapabilityRequest = {
 const patterns: Array<{ tool: ZyronToolName; pattern: RegExp }> = [
   { tool: "calendar", pattern: /\b(calendario|agenda|evento|reuni[oó]n|cita|hueco libre|disponibilidad)\b/i },
   { tool: "gmail", pattern: /\b(gmail|correo|email|e-mail|bandeja de entrada|mensaje recibido)\b/i },
+  { tool: "drive", pattern: /\b(google drive|drive|documento|archivo|carpeta)\b/i },
   { tool: "maps", pattern: /\b(maps|ruta|tr[aá]fico|ubicaci[oó]n|cu[aá]nto tardo|hora de salida|c[oó]mo llego)\b/i },
   { tool: "notifications", pattern: /\b(notif[ií]came|av[ií]same|aviso|notificaci[oó]n|alerta)\b/i },
 ];
@@ -34,6 +35,7 @@ export function unavailableCapabilityReply(message: string) {
     planner: "Planificador",
     calendar: "Google Calendar",
     gmail: "Gmail",
+    drive: "Google Drive",
     proactive: "Proactividad",
     maps: "Mapas y rutas",
     notifications: "Notificaciones",
