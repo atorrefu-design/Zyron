@@ -58,6 +58,18 @@ private struct NativeChatRequest: Encodable {
     let deviceLocation: NativeDeviceLocation?
 }
 
+struct NativeActionResolution: Decodable {
+    let ok: Bool?
+    let mode: String?
+    let action: String?
+    let capabilityId: String?
+    let input: String?
+    let payload: [String: String]?
+    let message: String?
+    let reply: String?
+    let error: String?
+}
+
 private struct NativePlacesRequest: Encodable {
     let query: String
     let latitude: Double?
@@ -182,6 +194,15 @@ final class NativeAPIClient {
             throw NativeAPIError.invalidResponse
         }
         return reply
+    }
+
+    func resolveNativeAction(_ query: String, deviceLocation: NativeDeviceLocation? = nil) async throws -> NativeActionResolution {
+        let body = NativeChatRequest(
+            messages: [.init(role: "user", content: query)],
+            deviceLocation: deviceLocation
+        )
+        let data = try await postJSON(path: "/api/act", body: body)
+        return try JSONDecoder().decode(NativeActionResolution.self, from: data)
     }
 
     func createTask(title: String, dueAt: String? = nil) async throws -> String {
