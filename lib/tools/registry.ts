@@ -93,12 +93,12 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     },
     drive: {
       name: "drive",
-      description: "Busca y consulta archivos del Google Drive conectado en modo privado de solo lectura.",
-      permissions: ["owner_session", "google_oauth", "drive.readonly"],
-      canWrite: false,
-      requiresConfirmation: false,
+      description: "Busca y consulta Drive; crea carpetas y documentos nuevos únicamente tras confirmación explícita.",
+      permissions: ["owner_session", "google_oauth", "drive.readonly", "drive.file"],
+      canWrite: true,
+      requiresConfirmation: true,
       status: googleReady ? "available" : "needs_configuration",
-      configurationHint: "Configurar Google OAuth, habilitar Drive API y autorizar el scope drive.readonly.",
+      configurationHint: "Configurar Google OAuth, habilitar Drive API y autorizar drive.readonly y drive.file.",
     },
     proactive: {
       name: "proactive",
