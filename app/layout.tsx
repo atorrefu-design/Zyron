@@ -1,16 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import VoiceBridge from "./voice-bridge";
 
 export const metadata: Metadata = {
   title: "ZYRON",
   description: "Asistente personal privado de Aarón",
-  themeColor: "#0b1430",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "ZYRON",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0b1430",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

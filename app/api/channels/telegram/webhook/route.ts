@@ -1,0 +1,254 @@
+import { NextResponse } from "next/server";
+import { AIProviderUnavailableError } from "../../../../../lib/ai/router";
+import { runZyronAgent } from "../../../../../lib/agent/runtime";
+import {
+  appendChannelMessage,
+  claimChannelUpdate,
+  clearChannelMessages,
+  completeChannelUpdate,
+  failChannelUpdate,
+  getChannelBinding,
+  listRecentChannelMessages,
+  redeemChannelPairing,
+  saveChannelUpdateReply,
+} from "../../../../../lib/channels/store";
+import {
+  isValidTelegramWebhookSecret,
+  parseTelegramCommand,
+  secureSecretEquals,
+} from "../../../../../lib/channels/security";
+import {
+  sendTelegramChatAction,
+  sendTelegramMessage,
+  telegramWebhookSecret,
+  type TelegramMessage,
+  type TelegramUpdate,
+} from "../../../../../lib/channels/telegram";
+import { recordAction } from "../../../../../lib/db";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const CHANNEL = "telegram";
+const MAX_UPDATE_BYTES = 64_000;
+
+function json(body: Record<string, unknown>, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+function displayName(message: TelegramMessage) {
+  return [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ").trim() || null;
+}
+
+async function audit(action: string, summary: string, metadata: Record<string, unknown> = {}) {
+  try {
+    await recordAction("telegram", action, summary, metadata);
+  } catch (error) {
+    console.error("ZYRON_TELEGRAM_AUDIT_ERROR", error instanceof Error ? error.message : "unknown");
+  }
+}
+
+async function deliverReply(input: {
+  chatId: string;
+  updateId: string;
+  reply: string;
+  replyToMessageId?: number;
+}) {
+  const safeReply = input.reply.trim().slice(0, 20_000) || "No he podido construir una respuesta útil.";
+  await saveChannelUpdateReply(CHANNEL, input.updateId, safeReply);
+  await sendTelegramMessage({
+    chatId: input.chatId,
+    text: safeReply,
+    replyToMessageId: input.replyToMessageId,
+  });
+  await completeChannelUpdate(CHANNEL, input.updateId);
+}
+
+export async function POST(request: Request) {
+  const expectedSecret = telegramWebhookSecret();
+  if (!isValidTelegramWebhookSecret(expectedSecret)) return json({ error: "Canal no configurado" }, 503);
+  if (!secureSecretEquals(expectedSecret, request.headers.get("x-telegram-bot-api-secret-token"))) {
+    return json({ error: "No autorizado" }, 401);
+  }
+
+  const declaredLength = Number(request.headers.get("content-length") || 0);
+  if (declaredLength > MAX_UPDATE_BYTES) return json({ error: "Actualización demasiado grande" }, 413);
+
+  let rawUpdate: string;
+  try {
+    rawUpdate = await request.text();
+  } catch {
+    return json({ error: "No se ha podido leer la actualización" }, 400);
+  }
+  if (Buffer.byteLength(rawUpdate, "utf8") > MAX_UPDATE_BYTES) {
+    return json({ error: "Actualización demasiado grande" }, 413);
+  }
+
+  let update: TelegramUpdate;
+  try {
+    update = JSON.parse(rawUpdate) as TelegramUpdate;
+  } catch {
+    return json({ error: "JSON no válido" }, 400);
+  }
+
+  const message = update.message;
+  if (!message || message.chat.type !== "private" || message.from?.is_bot) {
+    return json({ ok: true, ignored: true });
+  }
+  if (!Number.isSafeInteger(update.update_id) || !Number.isSafeInteger(message.chat.id) || !Number.isSafeInteger(message.from?.id)) {
+    return json({ error: "Identificadores no válidos" }, 400);
+  }
+
+  const updateId = String(update.update_id);
+  const chatId = String(message.chat.id);
+  const userId = String(message.from?.id);
+  let claimed = false;
+
+  try {
+    const claim = await claimChannelUpdate({ channel: CHANNEL, updateId, chatId });
+    if (claim.mode === "duplicate") return json({ ok: true, duplicate: true });
+    if (claim.mode === "busy") {
+      return NextResponse.json({ error: "Actualización en proceso" }, {
+        status: 503,
+        headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+      });
+    }
+    claimed = true;
+    if (claim.mode === "resend") {
+      await sendTelegramMessage({ chatId, text: claim.reply, replyToMessageId: message.message_id });
+      await completeChannelUpdate(CHANNEL, updateId);
+      return json({ ok: true, resent: true });
+    }
+
+    const text = message.text?.trim() || "";
+    const command = text ? parseTelegramCommand(text) : null;
+    if (command?.name === "pair") {
+      const binding = await redeemChannelPairing({
+        channel: CHANNEL,
+        code: command.argument,
+        externalUserId: userId,
+        externalChatId: chatId,
+        displayName: displayName(message),
+      });
+      const reply = binding
+        ? "Telegram ya está vinculado con tu núcleo privado de ZYRON. Puedes escribirme con normalidad."
+        : "El código no es válido o ha caducado. Genera uno nuevo en ZYRON → Canales.";
+      await deliverReply({ chatId, updateId, reply, replyToMessageId: message.message_id });
+      if (binding) {
+        await audit("channel_paired", "Vinculó el propietario con Telegram.", {
+          channel: CHANNEL,
+          displayName: binding.display_name,
+        });
+      }
+      return json({ ok: true, paired: Boolean(binding) });
+    }
+
+    const binding = await getChannelBinding(CHANNEL);
+    const authorized = Boolean(
+      binding?.enabled
+      && binding.external_user_id === userId
+      && binding.external_chat_id === chatId,
+    );
+    if (!authorized) {
+      if (command?.name === "start" || command?.name === "help") {
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: "Este bot pertenece a un núcleo privado de ZYRON. La vinculación se inicia desde la pantalla Canales de la web.",
+          replyToMessageId: message.message_id,
+        });
+      } else {
+        await completeChannelUpdate(CHANNEL, updateId);
+      }
+      return json({ ok: true, authorized: false });
+    }
+
+    if (command?.name === "start" || command?.name === "help") {
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: "ZYRON está conectado. Escríbeme como en la web. Comandos disponibles: /status para comprobar el canal y /reset para borrar solo el historial temporal de Telegram.",
+        replyToMessageId: message.message_id,
+      });
+      return json({ ok: true });
+    }
+    if (command?.name === "status") {
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: "Canal Telegram conectado al núcleo privado de ZYRON.",
+        replyToMessageId: message.message_id,
+      });
+      return json({ ok: true });
+    }
+    if (command?.name === "reset") {
+      const removed = await clearChannelMessages(CHANNEL, chatId);
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: `He borrado ${removed} mensajes del historial temporal de Telegram. La memoria permanente de ZYRON no se ha modificado.`,
+        replyToMessageId: message.message_id,
+      });
+      await audit("channel_history_cleared", "Borró el historial temporal de Telegram.", { removed });
+      return json({ ok: true });
+    }
+    if (!text) {
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: "Por ahora este canal admite mensajes de texto. La nota de voz será la siguiente ampliación.",
+        replyToMessageId: message.message_id,
+      });
+      return json({ ok: true });
+    }
+
+    const cleanText = text.slice(0, 4_096);
+    await appendChannelMessage({
+      channel: CHANNEL,
+      chatId,
+      role: "user",
+      content: cleanText,
+      externalMessageId: `telegram:${chatId}:${message.message_id}:user`,
+    });
+    const history = await listRecentChannelMessages(CHANNEL, chatId);
+    void sendTelegramChatAction(chatId).catch(() => undefined);
+
+    let reply: string;
+    let provider: string | null = null;
+    let toolsUsed: string[] = [];
+    try {
+      const result = await runZyronAgent({ messages: history });
+      reply = result.reply;
+      provider = result.provider;
+      toolsUsed = result.trace.map((item) => item.tool);
+    } catch (error) {
+      if (!(error instanceof AIProviderUnavailableError)) throw error;
+      reply = error.message;
+    }
+
+    await appendChannelMessage({
+      channel: CHANNEL,
+      chatId,
+      role: "assistant",
+      content: reply,
+      externalMessageId: `telegram:update:${updateId}:assistant`,
+    });
+    await deliverReply({ chatId, updateId, reply, replyToMessageId: message.message_id });
+    await audit("channel_message_processed", "Procesó un mensaje autorizado de Telegram.", {
+      updateId,
+      provider,
+      toolsUsed,
+    });
+    return json({ ok: true });
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : "unknown";
+    if (claimed) {
+      await failChannelUpdate(CHANNEL, updateId, messageText).catch(() => undefined);
+    }
+    console.error("ZYRON_TELEGRAM_WEBHOOK_ERROR", messageText);
+    return json({ error: "No se ha podido procesar la actualización" }, 500);
+  }
+}

@@ -117,6 +117,34 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
 .memoryResults p { margin: 4px 0 0; color: #dce3f7; white-space: pre-wrap; line-height: 1.45; }
 .memorySuccess { color: #a8f0ca; background: rgba(24, 102, 67, .24); border: 1px solid rgba(112, 236, 178, .28); border-radius: 14px; padding: 12px 14px; }
 
+.channelsPanel { min-height: 580px; }
+.channelCard { margin-top: 24px; border: 1px solid #2b407b; border-radius: 22px; padding: 18px; background: rgba(8, 16, 39, .72); }
+.channelCardHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.channelCardHeader > div { display: flex; align-items: center; gap: 12px; }
+.channelCardHeader h2 { margin: 0 0 4px; }
+.channelCardHeader p { margin: 0; color: #9ba8d0; font-size: .86rem; }
+.channelIcon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: linear-gradient(135deg, #29a9ea, #3875e9); font-size: 1.25rem; }
+.channelBadge { border: 1px solid #425486; border-radius: 999px; padding: 6px 10px; color: #a9b5d8; font-size: .74rem; white-space: nowrap; }
+.channelBadge.connected { border-color: rgba(94, 225, 158, .42); background: rgba(39, 137, 91, .2); color: #a8f0ca; }
+.channelGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+.channelGrid > div { display: grid; gap: 4px; border: 1px solid rgba(55, 78, 139, .7); border-radius: 14px; padding: 12px; background: rgba(5, 11, 29, .55); }
+.channelGrid span { color: #8f9bc2; font-size: .74rem; }
+.channelGrid strong { overflow-wrap: anywhere; }
+.channelNotice, .pairingBox, .channelSecurity { border: 1px solid rgba(55, 78, 139, .8); border-radius: 18px; padding: 15px; background: rgba(7, 14, 34, .58); }
+.channelNotice p, .pairingBox p { color: #b9c3e3; line-height: 1.45; }
+.channelNotice small, .pairingBox small { color: #8f9bc2; }
+.pairingBox { display: grid; gap: 8px; margin: 14px 0; border-color: rgba(112, 236, 178, .32); }
+.pairingBox code { width: fit-content; border-radius: 12px; padding: 10px 14px; background: #071126; color: #a8f0ca; font-size: 1.35rem; letter-spacing: .14em; font-weight: 900; }
+.pairingBox p { margin: 0; }
+.channelActions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.channelActions button { border: 0; border-radius: 14px; padding: 11px 14px; color: white; font-weight: 800; background: linear-gradient(135deg, #4d77ff, #7744ef); }
+.channelActions button:disabled { opacity: .48; }
+.channelActions .ghostButton { border: 1px solid #30457f; background: rgba(11, 20, 48, .72); }
+.channelActions .dangerButton { border-color: rgba(255, 125, 145, .35); color: #ffb2bd; }
+.channelSecurity { margin-top: 18px; }
+.channelSecurity h2 { margin-top: 0; }
+.channelSecurity ul { margin-bottom: 0; padding-left: 20px; color: #b9c3e3; line-height: 1.7; }
+
 @media (max-width: 640px) {
   .taskComposer { grid-template-columns: 1fr; }
   .taskComposer button { min-height: 48px; }
@@ -124,6 +152,7 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
   .activityItem time { grid-column: 2; text-align: left; }
   .memorySearch { grid-template-columns: 1fr; }
   .memorySearch button { min-height: 48px; }
+  .channelGrid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 520px) {
