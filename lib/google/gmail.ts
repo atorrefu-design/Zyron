@@ -27,6 +27,11 @@ export type GmailPriority = {
   summary: string;
 };
 
+export type GmailMessageContent = GmailMessage & {
+  bodyExcerpt: string;
+  contentTrust: "untrusted_email";
+};
+
 type GmailHeader = { name: string; value: string };
 type GmailListResponse = { messages?: Array<{ id: string; threadId: string }>; nextPageToken?: string };
 type GmailMessageResponse = {
@@ -35,12 +40,75 @@ type GmailMessageResponse = {
   labelIds?: string[];
   snippet?: string;
   internalDate?: string;
-  payload?: { headers?: GmailHeader[] };
+  payload?: GmailPart;
+};
+type GmailPart = {
+  mimeType?: string;
+  headers?: GmailHeader[];
+  body?: { data?: string };
+  parts?: GmailPart[];
 };
 type GmailLabelResponse = { messagesUnread?: number };
 
 function header(headers: GmailHeader[] | undefined, name: string) {
   return headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? null;
+}
+
+function decodedBody(data: string | undefined) {
+  if (!data) return "";
+  try {
+    return Buffer.from(data, "base64url").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function plainTextFromHtml(value: string) {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function collectBodyParts(part: GmailPart | undefined, plain: string[], html: string[]) {
+  if (!part) return;
+  const value = decodedBody(part.body?.data);
+  if (value && part.mimeType === "text/plain") plain.push(value);
+  if (value && part.mimeType === "text/html") html.push(plainTextFromHtml(value));
+  for (const child of part.parts ?? []) collectBodyParts(child, plain, html);
+}
+
+function cleanBodyExcerpt(payload: GmailPart | undefined, fallback: string) {
+  const plain: string[] = [];
+  const html: string[] = [];
+  collectBodyParts(payload, plain, html);
+  return (plain.join("\n") || html.join("\n") || fallback)
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 6_000);
+}
+
+function mappedMessage(message: GmailMessageResponse): GmailMessage {
+  const labels = message.labelIds ?? [];
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    subject: header(message.payload?.headers, "Subject") || "(Sin asunto)",
+    from: header(message.payload?.headers, "From"),
+    snippet: (message.snippet ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
+    unread: labels.includes("UNREAD"),
+    starred: labels.includes("STARRED"),
+    important: labels.includes("IMPORTANT"),
+    internalDate: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null,
+  };
 }
 
 export function compactSender(value: string | null) {
@@ -85,19 +153,23 @@ export async function listGmailMessages(query: string, maxResults = 15): Promise
     const metadata = new URLSearchParams({ format: "metadata" });
     ["Subject", "From", "Date"].forEach((name) => metadata.append("metadataHeaders", name));
     const message = await gmailFetch<GmailMessageResponse>(`/messages/${encodeURIComponent(ref.id)}?${metadata.toString()}`, accessToken);
-    const labels = message.labelIds ?? [];
-    return {
-      id: message.id,
-      threadId: message.threadId,
-      subject: header(message.payload?.headers, "Subject") || "(Sin asunto)",
-      from: header(message.payload?.headers, "From"),
-      snippet: (message.snippet ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
-      unread: labels.includes("UNREAD"),
-      starred: labels.includes("STARRED"),
-      important: labels.includes("IMPORTANT"),
-      internalDate: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null,
-    };
+    return mappedMessage(message);
   }));
+}
+
+export async function readGmailMessage(messageId: string): Promise<GmailMessageContent> {
+  await assertGmailReady();
+  const accessToken = await getGoogleAccessToken();
+  const message = await gmailFetch<GmailMessageResponse>(
+    `/messages/${encodeURIComponent(messageId)}?format=full`,
+    accessToken,
+  );
+  const metadata = mappedMessage(message);
+  return {
+    ...metadata,
+    bodyExcerpt: cleanBodyExcerpt(message.payload, metadata.snippet),
+    contentTrust: "untrusted_email",
+  };
 }
 
 function fallbackPriority(messages: GmailMessage[]): GmailPriority[] {
