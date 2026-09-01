@@ -11,7 +11,9 @@ export type ZyronAgentToolName =
   | "search_places"
   | "get_driving_route"
   | "search_gmail"
-  | "read_gmail_message";
+  | "read_gmail_message"
+  | "search_drive"
+  | "read_drive_file";
 
 export type ZyronAgentToolPolicy = {
   risk: "low" | "medium" | "high";
@@ -50,6 +52,8 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   get_driving_route: { risk: "low", effect: "read", requiresExplicitRequest: false },
   search_gmail: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   read_gmail_message: { risk: "medium", effect: "read", requiresExplicitRequest: false },
+  search_drive: { risk: "medium", effect: "read", requiresExplicitRequest: false },
+  read_drive_file: { risk: "medium", effect: "read", requiresExplicitRequest: false },
 };
 
 function explicitlyRequestsMemory(message: string) {

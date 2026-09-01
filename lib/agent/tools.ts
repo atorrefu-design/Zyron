@@ -7,6 +7,8 @@ import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from ".
 import { buildNavigationLinks, validSharedLocation } from "../maps-links";
 import { normalizeGmailQuery, validGmailMessageId } from "../gmail-query";
 import { compactSender, listGmailMessages, readGmailMessage } from "../google/gmail";
+import { readDriveFile, searchDriveFiles } from "../google/drive";
+import { normalizeDriveSearch, validDriveFileId } from "../drive-policy";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 import { classifyAgentToolFailure } from "./tool-errors";
@@ -223,6 +225,39 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
           message_id: { type: "string", description: "Identificador exacto obtenido mediante search_gmail." },
         },
         required: ["message_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_drive",
+      description: "Busca archivos reales en el Google Drive conectado con acceso de solo lectura. Devuelve metadatos y enlaces, sin descargar contenido.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Palabras del nombre o contenido del documento que Aarón busca." },
+          limit: { type: "integer", minimum: 1, maximum: 15 },
+        },
+        required: ["query", "limit"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_drive_file",
+      description: "Lee un único archivo de texto, Google Docs o Google Sheets encontrado previamente. Devuelve un extracto limitado; otros formatos solo pueden localizarse.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          file_id: { type: "string", description: "Identificador exacto obtenido mediante search_drive." },
+        },
+        required: ["file_id"],
         additionalProperties: false,
       },
     },
@@ -478,6 +513,44 @@ async function readAgentGmailMessage(args: Record<string, unknown>): Promise<Zyr
   };
 }
 
+async function searchAgentDrive(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const query = normalizeDriveSearch(args.query);
+  if (!query) return { ok: false, summary: "Indica qué documento o archivo quieres buscar en Drive." };
+  const limit = Math.max(1, Math.min(Number(args.limit) || 10, 15));
+  const files = await searchDriveFiles(query, limit);
+  await audit("drive_searched", `Consultó Google Drive y obtuvo ${files.length} archivos.`, { count: files.length });
+  return {
+    ok: true,
+    summary: `${files.length} archivos encontrados en Drive.`,
+    data: {
+      files: files.map((file) => ({ ...file, contentTrust: "untrusted_drive_metadata" as const })),
+      privacy: "Metadatos temporales de solo lectura; no se guardan en memoria permanente.",
+    },
+  };
+}
+
+async function readAgentDriveFile(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const fileId = args.file_id;
+  if (!validDriveFileId(fileId)) return { ok: false, summary: "El identificador del archivo no es válido." };
+  const file = await readDriveFile(fileId);
+  await audit("drive_file_read", "Leyó un archivo concreto de Drive para responder al propietario.", {});
+  return {
+    ok: true,
+    summary: "Archivo leído en modo privado y de solo lectura.",
+    data: {
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      modifiedTime: file.modifiedTime,
+      webViewLink: file.webViewLink,
+      textExcerpt: file.textExcerpt,
+      truncated: file.truncated,
+      contentTrust: file.contentTrust,
+      privacy: "Extracto temporal limitado; no se guarda en memoria permanente.",
+    },
+  };
+}
+
 export async function executeAgentTool(input: {
   name: string;
   arguments: string;
@@ -554,6 +627,8 @@ export async function executeAgentTool(input: {
     if (name === "get_driving_route") return await getAgentDrivingRoute(args);
     if (name === "search_gmail") return await searchAgentGmail(args);
     if (name === "read_gmail_message") return await readAgentGmailMessage(args);
+    if (name === "search_drive") return await searchAgentDrive(args);
+    if (name === "read_drive_file") return await readAgentDriveFile(args);
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);

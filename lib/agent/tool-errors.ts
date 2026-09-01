@@ -8,6 +8,47 @@ export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToo
   const calendarWrite = tool === "create_calendar_event" || tool === "delete_calendar_event";
   const mapsRead = tool === "search_places" || tool === "get_driving_route";
   const gmailRead = tool === "search_gmail" || tool === "read_gmail_message";
+  const driveRead = tool === "search_drive" || tool === "read_drive_file";
+
+  if (driveRead && (
+    message.includes("google_not_connected")
+    || message.includes("drive_scope_missing")
+    || message.includes("google_token_refresh_400")
+    || message.includes("drive_api_401")
+  )) {
+    return {
+      code: "drive_reconnect_required",
+      summary: "Google Drive no está autorizado o la conexión ha caducado. Reautoriza Google desde el panel de ZYRON.",
+    };
+  }
+
+  if (driveRead && message.includes("drive_api_403")) {
+    return {
+      code: "drive_api_unavailable",
+      summary: "Google ha denegado la consulta de Drive. Comprueba que Google Drive API esté habilitada y vuelve a autorizar Google.",
+    };
+  }
+
+  if (driveRead && message.includes("drive_api_404")) {
+    return {
+      code: "drive_file_not_found",
+      summary: "Ese archivo ya no está disponible o no pertenece al ámbito autorizado. Vuelve a buscarlo.",
+    };
+  }
+
+  if (driveRead && message.includes("drive_content_unsupported")) {
+    return {
+      code: "drive_content_unsupported",
+      summary: "He localizado el archivo, pero este formato todavía no admite lectura de contenido. Puedo mostrarte sus metadatos y enlace de Drive.",
+    };
+  }
+
+  if (driveRead && message.includes("drive_file_too_large")) {
+    return {
+      code: "drive_file_too_large",
+      summary: "El archivo supera el límite seguro de lectura directa. Puedo mostrarte sus metadatos y enlace de Drive.",
+    };
+  }
 
   if (gmailRead && (
     message.includes("google_not_connected")
