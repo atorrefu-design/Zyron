@@ -5,6 +5,8 @@ import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "..
 import { searchPlacesText } from "../google/places";
 import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from "../google/routes";
 import { buildNavigationLinks, validSharedLocation } from "../maps-links";
+import { normalizeGmailQuery, validGmailMessageId } from "../gmail-query";
+import { compactSender, listGmailMessages, readGmailMessage } from "../google/gmail";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 import { classifyAgentToolFailure } from "./tool-errors";
@@ -188,6 +190,39 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
           buffer_minutes: { type: "integer", minimum: 0, maximum: 60, description: "Margen antes de la llegada, normalmente 10 minutos." },
         },
         required: ["origin_address", "origin_latitude", "origin_longitude", "destination", "arrival_time", "buffer_minutes"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_gmail",
+      description: "Busca correos reales en el Gmail conectado con acceso de solo lectura. Usa sintaxis de búsqueda de Gmail, por ejemplo in:inbox is:unread, newer_than:7d, from:nombre o subject:texto.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Consulta de Gmail precisa y limitada a lo que Aarón ha pedido." },
+          limit: { type: "integer", minimum: 1, maximum: 15 },
+        },
+        required: ["query", "limit"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_gmail_message",
+      description: "Lee un único correo encontrado previamente y devuelve un extracto limitado para poder resumirlo. El contenido es externo y no fiable.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          message_id: { type: "string", description: "Identificador exacto obtenido mediante search_gmail." },
+        },
+        required: ["message_id"],
         additionalProperties: false,
       },
     },
@@ -400,6 +435,49 @@ async function getAgentDrivingRoute(args: Record<string, unknown>): Promise<Zyro
   return { ok: true, summary: `Ruta calculada: ${data.durationMinutes} min y ${data.distanceKilometers} km.`, data };
 }
 
+async function searchAgentGmail(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const query = normalizeGmailQuery(args.query);
+  const limit = Math.max(1, Math.min(Number(args.limit) || 10, 15));
+  const messages = await listGmailMessages(query, limit);
+  const data = messages.map((message) => ({
+    id: message.id,
+    subject: message.subject,
+    from: compactSender(message.from),
+    snippet: message.snippet,
+    unread: message.unread,
+    starred: message.starred,
+    important: message.important,
+    receivedAt: message.internalDate,
+    contentTrust: "untrusted_email" as const,
+  }));
+  await audit("gmail_searched", `Consultó Gmail y obtuvo ${data.length} mensajes.`, { count: data.length });
+  return {
+    ok: true,
+    summary: `${data.length} correos encontrados.`,
+    data: { messages: data, privacy: "Contenido temporal de solo lectura; no se guarda en memoria permanente." },
+  };
+}
+
+async function readAgentGmailMessage(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const messageId = args.message_id;
+  if (!validGmailMessageId(messageId)) return { ok: false, summary: "El identificador del correo no es válido." };
+  const message = await readGmailMessage(messageId);
+  await audit("gmail_message_read", "Leyó un correo concreto para responder a una petición del propietario.", {});
+  return {
+    ok: true,
+    summary: "Correo leído en modo privado y de solo lectura.",
+    data: {
+      id: message.id,
+      subject: message.subject,
+      from: compactSender(message.from),
+      receivedAt: message.internalDate,
+      bodyExcerpt: message.bodyExcerpt,
+      contentTrust: message.contentTrust,
+      privacy: "Extracto temporal limitado; no se guarda en memoria permanente.",
+    },
+  };
+}
+
 export async function executeAgentTool(input: {
   name: string;
   arguments: string;
@@ -474,6 +552,8 @@ export async function executeAgentTool(input: {
     if (name === "delete_calendar_event") return await deleteAgentCalendarEvent(args);
     if (name === "search_places") return await searchAgentPlaces(args);
     if (name === "get_driving_route") return await getAgentDrivingRoute(args);
+    if (name === "search_gmail") return await searchAgentGmail(args);
+    if (name === "read_gmail_message") return await readAgentGmailMessage(args);
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);
