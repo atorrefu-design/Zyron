@@ -9,6 +9,33 @@ export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToo
   const mapsRead = tool === "search_places" || tool === "get_driving_route";
   const gmailRead = tool === "search_gmail" || tool === "read_gmail_message";
   const driveRead = tool === "search_drive" || tool === "read_drive_file";
+  const driveWrite = tool === "create_drive_folder" || tool === "create_drive_document";
+
+  if (driveWrite && (
+    message.includes("google_not_connected")
+    || message.includes("drive_write_scope_missing")
+    || message.includes("google_token_refresh_400")
+    || message.includes("drive_write_401")
+  )) {
+    return {
+      code: "drive_write_reconnect_required",
+      summary: "Google Drive todavía no permite crear archivos. Reautoriza Google desde el panel de ZYRON y acepta el permiso de creación limitada.",
+    };
+  }
+
+  if (driveWrite && message.includes("drive_write_403")) {
+    return {
+      code: "drive_write_permission_denied",
+      summary: "Google ha denegado la creación en Drive. Comprueba que Drive API esté habilitada y reautoriza el permiso drive.file desde el panel.",
+    };
+  }
+
+  if (driveWrite && message.includes("drive_write_404")) {
+    return {
+      code: "drive_destination_not_found",
+      summary: "La carpeta de destino ya no está disponible o no pertenece al ámbito autorizado. Vuelve a localizarla antes de confirmar.",
+    };
+  }
 
   if (driveRead && (
     message.includes("google_not_connected")
