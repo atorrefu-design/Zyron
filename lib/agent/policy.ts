@@ -13,7 +13,9 @@ export type ZyronAgentToolName =
   | "search_gmail"
   | "read_gmail_message"
   | "search_drive"
-  | "read_drive_file";
+  | "read_drive_file"
+  | "create_drive_folder"
+  | "create_drive_document";
 
 export type ZyronAgentToolPolicy = {
   risk: "low" | "medium" | "high";
@@ -54,16 +56,20 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   read_gmail_message: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   search_drive: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   read_drive_file: { risk: "medium", effect: "read", requiresExplicitRequest: false },
+  create_drive_folder: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true, requiresConfirmation: true },
+  create_drive_document: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true, requiresConfirmation: true },
 };
 
 function explicitlyRequestsMemory(message: string) {
   return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:en\s+tu\s+)?memoria|a\s+partir\s+de\s+ahora)(?:\b|\s)/i.test(message);
 }
 
-export function explicitlyConfirmsCalendarAction(message: string) {
+export function explicitlyConfirmsAgentAction(message: string) {
   const clean = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-  return /^(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|crea(?:\s+el)?\s+evento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[.!]|\s|$)/.test(clean);
+  return /^(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|guardalo|crea(?:\s+el)?\s+evento|crea(?:\s+la)?\s+carpeta|crea(?:\s+el)?\s+documento|guarda(?:\s+el)?\s+documento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[,.!]|\s|$)/.test(clean);
 }
+
+export const explicitlyConfirmsCalendarAction = explicitlyConfirmsAgentAction;
 
 export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgentAuthorization {
   if (!(tool in TOOL_POLICIES)) {
@@ -80,10 +86,10 @@ export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgen
     };
   }
 
-  if (policy.requiresConfirmation && !explicitlyConfirmsCalendarAction(userMessage)) {
+  if (policy.requiresConfirmation && !explicitlyConfirmsAgentAction(userMessage)) {
     return {
       allowed: false,
-      reason: "Antes de modificar la agenda, ZYRON debe mostrar el resumen y Aarón debe confirmarlo en un mensaje posterior.",
+      reason: "Antes de ejecutar esta escritura, ZYRON debe mostrar el resumen, el destino y el alcance; Aarón debe confirmarlo en un mensaje posterior.",
       policy,
     };
   }
