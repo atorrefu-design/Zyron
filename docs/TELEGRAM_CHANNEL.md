@@ -1,4 +1,4 @@
-# Canal privado de Telegram · ZYRON v0.8
+# Canal privado de Telegram · ZYRON v0.9
 
 ## Objetivo
 
@@ -12,6 +12,7 @@ Telegram es el primer canal externo de ZYRON. Utiliza el mismo núcleo agente, l
 4. La base de datos comprueba que el usuario y el chat privado están vinculados.
 5. Un registro idempotente evita volver a ejecutar una actualización repetida.
 6. ZYRON recupera un historial temporal del canal, ejecuta el núcleo agente y responde al mismo chat.
+7. Las notas de voz autorizadas se descargan temporalmente desde Telegram, se transcriben y se descartan sin persistir el audio.
 
 La configuración y el estado se gestionan desde `/channels`. Su API, `/api/channels/telegram`, continúa protegida por la sesión del propietario.
 
@@ -44,6 +45,14 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 - `/status`: confirma que el chat está conectado.
 - `/reset`: elimina el historial temporal de Telegram. No modifica la memoria permanente.
 
+## Notas de voz
+
+- Solo se descargan después de comprobar que el chat pertenece a Aarón.
+- El límite es de 3 minutos y 8 MB por nota.
+- El archivo de audio no se guarda en Neon, Vercel ni en la memoria de ZYRON.
+- La transcripción se incorpora al historial temporal y utiliza el mismo núcleo agente que el texto.
+- El modelo predeterminado es `gpt-4o-mini-transcribe`; puede cambiarse con `ZYRON_TRANSCRIPTION_MODEL`.
+
 ## Seguridad y privacidad
 
 - Se aceptan únicamente chats privados.
@@ -56,6 +65,6 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 
 ## Alcance de esta versión
 
-ZYRON v0.8 recibe y responde texto. Las notas de voz se incorporarán después de validar el canal real y decidir el modelo de transcripción y la política de costes.
+ZYRON v0.9 recibe texto y notas de voz del propietario. Las respuestas continúan siendo texto protegido; la voz saliente se evaluará por separado para no aumentar el coste ni el ruido de uso sin una decisión explícita.
 
-Referencia oficial: [Telegram Bot API](https://core.telegram.org/bots/api).
+Referencias oficiales: [Telegram Bot API](https://core.telegram.org/bots/api) y [OpenAI Speech to Text](https://developers.openai.com/api/docs/guides/speech-to-text).
