@@ -9,7 +9,9 @@ export type ZyronAgentToolName =
   | "create_calendar_event"
   | "delete_calendar_event"
   | "search_places"
-  | "get_driving_route";
+  | "get_driving_route"
+  | "search_gmail"
+  | "read_gmail_message";
 
 export type ZyronAgentToolPolicy = {
   risk: "low" | "medium" | "high";
@@ -46,6 +48,8 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   },
   search_places: { risk: "low", effect: "read", requiresExplicitRequest: false },
   get_driving_route: { risk: "low", effect: "read", requiresExplicitRequest: false },
+  search_gmail: { risk: "medium", effect: "read", requiresExplicitRequest: false },
+  read_gmail_message: { risk: "medium", effect: "read", requiresExplicitRequest: false },
 };
 
 function explicitlyRequestsMemory(message: string) {
