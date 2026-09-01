@@ -11,17 +11,19 @@ ZYRON no depende de que un Mac permanezca encendido. El núcleo vive en la nube;
 - Núcleo agente: skills contextuales, herramientas verificables y política determinista
 - Motores de IA: OpenAI directo y enrutador opcional a Claude/Gemini mediante Vercel AI Gateway
 - Memoria privada y portátil: PostgreSQL/Neon con importación Markdown y exportación JSON
+- Canales: web/PWA, companion iOS y gateway privado para Telegram
 - Cliente nativo iPhone: `ios/`
 - CI: GitHub Actions
 - Objetivo de despliegue del núcleo: Vercel
 
-Consulta `docs/architecture-v1.md`, `docs/AGENT_CORE_V2.md` y `docs/MEMORY_API.md` para la arquitectura, el núcleo agente, la memoria y sus interfaces autorizadas.
+Consulta `docs/architecture-v1.md`, `docs/AGENT_CORE_V2.md`, `docs/MEMORY_API.md` y `docs/TELEGRAM_CHANNEL.md` para la arquitectura, el núcleo agente, la memoria y el primer canal externo.
 
 ## Desarrollo
 
 ```bash
 npm install
 npm run typecheck
+npm run test:channels
 npm run build
 npm run dev
 ```
@@ -32,4 +34,4 @@ El chat usa OpenAI de forma predeterminada. Con `AI_GATEWAY_API_KEY` configurada
 
 ## Estado
 
-El repositorio ya contiene backend, health check, núcleo agente con herramientas, orquestación de voz, memoria persistente propia y trabajo nativo iOS. La memoria no depende de ChatGPT ni de un proveedor de modelos: vive en la misma base PostgreSQL privada que utiliza el núcleo.
+El repositorio ya contiene backend, health check, núcleo agente con herramientas, orquestación de voz, memoria persistente propia, gateway seguro de Telegram y trabajo nativo iOS. La memoria no depende de ChatGPT ni de un proveedor de modelos: vive en la misma base PostgreSQL privada que utiliza el núcleo.

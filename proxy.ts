@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   "/api/memory/openapi",
   "/api/google/callback",
   "/api/push/dispatch",
+  "/api/channels/telegram/webhook",
   "/favicon.ico",
 ];
 
