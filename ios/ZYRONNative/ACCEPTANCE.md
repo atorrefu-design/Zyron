@@ -55,6 +55,18 @@ Durante Realtime nativo:
 - Probar una llamada entrante si es posible.
 - Confirmar que ZYRON recupera la sesión o vuelve limpiamente al detector pasivo.
 
+## Gate 7: contactos y comunicaciones
+
+- En la tarjeta «Contactos y comunicaciones», autorizar solo los contactos elegidos cuando iOS ofrezca acceso limitado.
+- Decir \`ZYRON, llama a Sarai\` y confirmar que iOS prepara la llamada al contacto correcto.
+- Si existen contactos duplicados, confirmar que ZYRON pide el nombre completo y no escoge uno por su cuenta.
+- Si un contacto tiene varios teléfonos, confirmar que ZYRON pide concretar y no utiliza el primero automáticamente.
+- Decir \`ZYRON, escribe a Laura por WhatsApp que llegaré tarde\`.
+- Confirmar que WhatsApp se abre con destinatario y texto preparados, pero que ZYRON no pulsa Enviar.
+- Decir \`ZYRON, envía un SMS a mamá diciendo ya he llegado\`.
+- Confirmar que Mensajes se abre con el borrador y requiere pulsar Enviar.
+- Revocar Contactos en Ajustes y confirmar que ZYRON explica el bloqueo sin afirmar que preparó ninguna acción.
+
 ## Fallback del sistema
 
 Si iOS termina la escucha permanente, el App Shortcut `Activar ZYRON` debe poder volver a abrir la app mediante Siri/Atajos. Este fallback no sustituye al detector local 24/7; solo recupera la app cuando el sistema la haya detenido.
