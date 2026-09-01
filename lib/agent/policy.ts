@@ -5,12 +5,15 @@ export type ZyronAgentToolName =
   | "build_daily_plan"
   | "search_memory"
   | "remember_fact"
-  | "read_calendar";
+  | "read_calendar"
+  | "create_calendar_event"
+  | "delete_calendar_event";
 
 export type ZyronAgentToolPolicy = {
   risk: "low" | "medium" | "high";
   effect: "read" | "reversible_write" | "persistent_write";
   requiresExplicitRequest: boolean;
+  requiresConfirmation?: boolean;
 };
 
 export type ZyronAgentAuthorization = {
@@ -27,10 +30,27 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   search_memory: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   remember_fact: { risk: "medium", effect: "persistent_write", requiresExplicitRequest: true },
   read_calendar: { risk: "medium", effect: "read", requiresExplicitRequest: false },
+  create_calendar_event: {
+    risk: "medium",
+    effect: "reversible_write",
+    requiresExplicitRequest: true,
+    requiresConfirmation: true,
+  },
+  delete_calendar_event: {
+    risk: "high",
+    effect: "reversible_write",
+    requiresExplicitRequest: true,
+    requiresConfirmation: true,
+  },
 };
 
 function explicitlyRequestsMemory(message: string) {
   return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:en\s+tu\s+)?memoria|a\s+partir\s+de\s+ahora)(?:\b|\s)/i.test(message);
+}
+
+export function explicitlyConfirmsCalendarAction(message: string) {
+  const clean = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  return /^(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|crea(?:\s+el)?\s+evento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[.!]|\s|$)/.test(clean);
 }
 
 export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgentAuthorization {
@@ -44,6 +64,14 @@ export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgen
     return {
       allowed: false,
       reason: "La memoria permanente solo se escribe cuando Aarón lo pide explícitamente.",
+      policy,
+    };
+  }
+
+  if (policy.requiresConfirmation && !explicitlyConfirmsCalendarAction(userMessage)) {
+    return {
+      allowed: false,
+      reason: "Antes de modificar la agenda, ZYRON debe mostrar el resumen y Aarón debe confirmarlo en un mensaje posterior.",
       policy,
     };
   }
