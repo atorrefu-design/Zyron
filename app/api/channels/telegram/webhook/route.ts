@@ -30,6 +30,7 @@ import {
   validateTelegramVoice,
 } from "../../../../../lib/channels/transcription";
 import { recordAction } from "../../../../../lib/db";
+import { validSharedLocation } from "../../../../../lib/maps-links";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "ZYRON está conectado. Escríbeme o envíame una nota de voz como en la web. Comandos disponibles: /status para comprobar el canal y /reset para borrar solo el historial temporal de Telegram.",
+        reply: "ZYRON está conectado. Escríbeme, envíame una nota de voz o comparte tu ubicación para calcular rutas desde donde estés. Comandos disponibles: /status para comprobar el canal y /reset para borrar solo el historial temporal de Telegram.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
@@ -200,18 +201,18 @@ export async function POST(request: Request) {
       await audit("channel_history_cleared", "Borró el historial temporal de Telegram.", { removed });
       return json({ ok: true });
     }
-    if (!text && !message.voice) {
+    if (!text && !message.voice && !message.location) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "Este canal admite mensajes de texto y notas de voz. Otros archivos todavía no se procesan.",
+        reply: "Este canal admite mensajes de texto, notas de voz y ubicación compartida. Otros archivos todavía no se procesan.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
     }
 
     let cleanText = text.slice(0, 4_096);
-    let inputMode: "text" | "voice" = "text";
+    let inputMode: "text" | "voice" | "location" = "text";
     if (!cleanText && message.voice) {
       const validation = validateTelegramVoice(message.voice);
       if (!validation.ok) {
@@ -237,6 +238,19 @@ export async function POST(request: Request) {
         });
         return json({ ok: true, transcriptionFailed: true });
       }
+    }
+    if (!cleanText && message.location) {
+      if (!validSharedLocation(message.location.latitude, message.location.longitude)) {
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: "La ubicación recibida no es válida. Compártela de nuevo desde Telegram.",
+          replyToMessageId: message.message_id,
+        });
+        return json({ ok: true, locationRejected: true });
+      }
+      inputMode = "location";
+      cleanText = `[Ubicación compartida por Aarón] latitud=${message.location.latitude.toFixed(6)} longitud=${message.location.longitude.toFixed(6)}`;
     }
 
     await appendChannelMessage({
