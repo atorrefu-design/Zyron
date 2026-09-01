@@ -1,7 +1,7 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { buildDailyPlan, formatDailyPlan } from "../tools/planner";
 import { createTask, listTasks, recordAction, setTaskCompleted } from "../db";
-import { listCalendarEvents } from "../google/calendar";
+import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "../google/calendar";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 
@@ -111,6 +111,43 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "create_calendar_event",
+      description: "Crea un evento real en Google Calendar únicamente después de mostrar un resumen y recibir confirmación expresa en un mensaje posterior.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Título concreto del evento." },
+          start: { type: "string", description: "Inicio ISO 8601 con zona horaria cuando tenga hora." },
+          end: { type: "string", description: "Fin ISO 8601 con zona horaria; debe ser posterior al inicio." },
+          all_day: { type: "boolean", description: "true solo para eventos de día completo." },
+          location: { type: ["string", "null"], description: "Ubicación si se conoce; si no, null." },
+          description: { type: ["string", "null"], description: "Notas útiles si existen; si no, null." },
+        },
+        required: ["title", "start", "end", "all_day", "location", "description"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_calendar_event",
+      description: "Busca y elimina un único evento real de Google Calendar únicamente después de mostrar cuál es y recibir confirmación expresa en un mensaje posterior.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Título o referencia inequívoca del evento que se debe eliminar." },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 function parseArguments(raw: string): Record<string, unknown> {
@@ -183,6 +220,68 @@ async function readCalendar(args: Record<string, unknown>): Promise<ZyronAgentTo
   return { ok: true, summary: `Calendario consultado: ${data.length} eventos.`, data };
 }
 
+function calendarEventArguments(args: Record<string, unknown>) {
+  const title = textArgument(args, "title", 240).replace(/[.!?]+$/, "");
+  const start = textArgument(args, "start", 80);
+  const end = textArgument(args, "end", 80);
+  const allDay = args.all_day === true;
+  const location = textArgument(args, "location", 500) || null;
+  const description = textArgument(args, "description", 2_000) || null;
+  if (!title || !start || !end) throw new Error("calendar_event_fields_required");
+  if (allDay) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end <= start) {
+      throw new Error("calendar_all_day_range_invalid");
+    }
+  } else {
+    const startTime = new Date(start).getTime();
+    const endTime = new Date(end).getTime();
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
+      throw new Error("calendar_time_range_invalid");
+    }
+  }
+  return { title, start, end, allDay, location, description, timeZone: "Europe/Madrid" };
+}
+
+async function createAgentCalendarEvent(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const event = await createCalendarEvent(calendarEventArguments(args));
+  await audit("calendar_event_created", `Creó el evento “${event.title}”.`, {
+    eventId: event.id,
+    start: event.start,
+    end: event.end,
+    location: event.location,
+  });
+  return { ok: true, summary: `Evento creado: ${event.title}.`, data: event };
+}
+
+async function deleteAgentCalendarEvent(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const query = textArgument(args, "query", 240);
+  if (!query) return { ok: false, summary: "Falta identificar el evento." };
+  const needle = normalized(query);
+  const now = new Date();
+  const events = await listCalendarEvents({
+    timeMin: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+    timeMax: new Date(now.getTime() + 366 * 24 * 60 * 60 * 1000),
+    maxResults: 100,
+  });
+  const matches = events.filter((event) => {
+    const title = normalized(event.title);
+    return title.includes(needle) || needle.includes(title);
+  });
+  if (matches.length !== 1) {
+    return {
+      ok: false,
+      summary: matches.length ? "Hay varios eventos compatibles; Aarón debe concretar cuál." : "No se ha encontrado un evento compatible.",
+      data: matches.slice(0, 8).map((event) => ({ title: event.title, start: event.start })),
+    };
+  }
+  await deleteCalendarEvent(matches[0].id);
+  await audit("calendar_event_deleted", `Eliminó el evento “${matches[0].title}”.`, {
+    eventId: matches[0].id,
+    start: matches[0].start,
+  });
+  return { ok: true, summary: `Evento eliminado: ${matches[0].title}.`, data: matches[0] };
+}
+
 export async function executeAgentTool(input: {
   name: string;
   arguments: string;
@@ -253,6 +352,8 @@ export async function executeAgentTool(input: {
     }
 
     if (name === "read_calendar") return await readCalendar(args);
+    if (name === "create_calendar_event") return await createAgentCalendarEvent(args);
+    if (name === "delete_calendar_event") return await deleteAgentCalendarEvent(args);
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);
