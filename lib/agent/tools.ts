@@ -2,6 +2,9 @@ import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { buildDailyPlan, formatDailyPlan } from "../tools/planner";
 import { createTask, listTasks, recordAction, setTaskCompleted } from "../db";
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "../google/calendar";
+import { searchPlacesText } from "../google/places";
+import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from "../google/routes";
+import { buildNavigationLinks, validSharedLocation } from "../maps-links";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 import { classifyAgentToolFailure } from "./tool-errors";
@@ -149,6 +152,46 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "search_places",
+      description: "Busca lugares reales con Google Places. Para búsquedas cerca de Aarón usa las coordenadas compartidas en la conversación.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Qué lugar busca Aarón, incluyendo zona si no hay ubicación compartida." },
+          latitude: { type: ["number", "null"], description: "Latitud compartida por el dispositivo; si no existe, null." },
+          longitude: { type: ["number", "null"], description: "Longitud compartida por el dispositivo; si no existe, null." },
+          limit: { type: "integer", minimum: 1, maximum: 5 },
+        },
+        required: ["query", "latitude", "longitude", "limit"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_driving_route",
+      description: "Calcula una ruta real en coche con tráfico, distancia, llegada y, si se indica una hora objetivo, cuándo conviene salir.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          origin_address: { type: ["string", "null"], description: "Origen explícito o resuelto desde memoria. Para «desde aquí», null y usa coordenadas compartidas." },
+          origin_latitude: { type: ["number", "null"], description: "Latitud compartida por el dispositivo; si no existe, null." },
+          origin_longitude: { type: ["number", "null"], description: "Longitud compartida por el dispositivo; si no existe, null." },
+          destination: { type: "string", description: "Destino preciso, resuelto desde memoria cuando proceda." },
+          arrival_time: { type: ["string", "null"], description: "Hora objetivo ISO 8601 si Aarón quiere llegar a una hora; si sale ahora, null." },
+          buffer_minutes: { type: "integer", minimum: 0, maximum: 60, description: "Margen antes de la llegada, normalmente 10 minutos." },
+        },
+        required: ["origin_address", "origin_latitude", "origin_longitude", "destination", "arrival_time", "buffer_minutes"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 function parseArguments(raw: string): Record<string, unknown> {
@@ -283,6 +326,80 @@ async function deleteAgentCalendarEvent(args: Record<string, unknown>): Promise<
   return { ok: true, summary: `Evento eliminado: ${matches[0].title}.`, data: matches[0] };
 }
 
+async function searchAgentPlaces(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const query = textArgument(args, "query", 300);
+  if (!query) return { ok: false, summary: "Falta indicar qué lugar hay que buscar." };
+  const latitude = args.latitude;
+  const longitude = args.longitude;
+  const coordinates = sharedCoordinates(latitude, longitude);
+  const hasAnyCoordinate = latitude !== null || longitude !== null;
+  if (hasAnyCoordinate && !coordinates) {
+    return { ok: false, summary: "Para buscar cerca de ti necesito que compartas una ubicación válida desde Telegram." };
+  }
+  const limit = Math.max(1, Math.min(Number(args.limit) || 5, 5));
+  const places = await searchPlacesText({
+    query,
+    ...(coordinates ?? {}),
+    pageSize: limit,
+  });
+  await audit("places_searched", `Buscó lugares y obtuvo ${places.length} resultados.`, {
+    count: places.length,
+    locationBiased: Boolean(coordinates),
+  });
+  return { ok: true, summary: `${places.length} lugares encontrados.`, data: places };
+}
+
+function sharedCoordinates(latitude: unknown, longitude: unknown) {
+  return validSharedLocation(latitude, longitude)
+    ? { latitude: latitude as number, longitude: longitude as number }
+    : null;
+}
+
+function routeOrigin(args: Record<string, unknown>): RoutePoint | null {
+  const address = textArgument(args, "origin_address", 300);
+  if (address) return { address };
+  return sharedCoordinates(args.origin_latitude, args.origin_longitude);
+}
+
+async function getAgentDrivingRoute(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const origin = routeOrigin(args);
+  if (!origin) {
+    return { ok: false, summary: "Necesito un origen concreto. Si quieres salir desde donde estás, comparte primero tu ubicación por Telegram." };
+  }
+  const destination = textArgument(args, "destination", 300);
+  if (!destination) return { ok: false, summary: "Falta un destino concreto." };
+  const arrivalCandidate = textArgument(args, "arrival_time", 80);
+  const arrivalTime = arrivalCandidate ? new Date(arrivalCandidate) : null;
+  if (arrivalTime && (!Number.isFinite(arrivalTime.getTime()) || arrivalTime.getTime() <= Date.now())) {
+    return { ok: false, summary: "La hora prevista de llegada no es válida o ya ha pasado." };
+  }
+  const bufferMinutes = Math.max(0, Math.min(Number(args.buffer_minutes) || 0, 60));
+  let planned: Awaited<ReturnType<typeof planDepartureForArrival>> | null = null;
+  const estimate = arrivalTime
+    ? (planned = await planDepartureForArrival({ origin, destination: { address: destination }, arrivalTime, bufferMinutes }))
+    : await computeDrivingRoute({ origin, destination: { address: destination } });
+  const data = {
+    durationMinutes: Math.max(1, Math.round(estimate.durationSeconds / 60)),
+    distanceKilometers: Math.round((estimate.distanceMeters / 1000) * 10) / 10,
+    departureTime: estimate.departureTime,
+    arrivalTime: estimate.arrivalTime,
+    trafficDelayMinutes: estimate.trafficDelaySeconds === null ? null : Math.round(estimate.trafficDelaySeconds / 60),
+    ...(planned ? {
+      recommendedDepartureTime: planned.recommendedDepartureTime,
+      targetArrivalTime: planned.targetArrivalTime,
+      bufferMinutes: planned.bufferMinutes,
+    } : {}),
+    navigation: buildNavigationLinks(origin, destination),
+  };
+  await audit("driving_route_calculated", "Calculó una ruta en coche con tráfico real.", {
+    originMode: "address" in origin ? "address" : "shared_location",
+    arriveBy: Boolean(arrivalTime),
+    durationMinutes: data.durationMinutes,
+    distanceKilometers: data.distanceKilometers,
+  });
+  return { ok: true, summary: `Ruta calculada: ${data.durationMinutes} min y ${data.distanceKilometers} km.`, data };
+}
+
 export async function executeAgentTool(input: {
   name: string;
   arguments: string;
@@ -355,6 +472,8 @@ export async function executeAgentTool(input: {
     if (name === "read_calendar") return await readCalendar(args);
     if (name === "create_calendar_event") return await createAgentCalendarEvent(args);
     if (name === "delete_calendar_event") return await deleteAgentCalendarEvent(args);
+    if (name === "search_places") return await searchAgentPlaces(args);
+    if (name === "get_driving_route") return await getAgentDrivingRoute(args);
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);
