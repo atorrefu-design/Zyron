@@ -24,6 +24,11 @@ import {
   type TelegramMessage,
   type TelegramUpdate,
 } from "../../../../../lib/channels/telegram";
+import {
+  telegramVoiceValidationMessage,
+  transcribeTelegramVoice,
+  validateTelegramVoice,
+} from "../../../../../lib/channels/transcription";
 import { recordAction } from "../../../../../lib/db";
 
 export const runtime = "nodejs";
@@ -170,7 +175,7 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "ZYRON está conectado. Escríbeme como en la web. Comandos disponibles: /status para comprobar el canal y /reset para borrar solo el historial temporal de Telegram.",
+        reply: "ZYRON está conectado. Escríbeme o envíame una nota de voz como en la web. Comandos disponibles: /status para comprobar el canal y /reset para borrar solo el historial temporal de Telegram.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
@@ -195,22 +200,50 @@ export async function POST(request: Request) {
       await audit("channel_history_cleared", "Borró el historial temporal de Telegram.", { removed });
       return json({ ok: true });
     }
-    if (!text) {
+    if (!text && !message.voice) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "Por ahora este canal admite mensajes de texto. La nota de voz será la siguiente ampliación.",
+        reply: "Este canal admite mensajes de texto y notas de voz. Otros archivos todavía no se procesan.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
     }
 
-    const cleanText = text.slice(0, 4_096);
+    let cleanText = text.slice(0, 4_096);
+    let inputMode: "text" | "voice" = "text";
+    if (!cleanText && message.voice) {
+      const validation = validateTelegramVoice(message.voice);
+      if (!validation.ok) {
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: telegramVoiceValidationMessage(validation),
+          replyToMessageId: message.message_id,
+        });
+        return json({ ok: true, voiceRejected: validation.reason });
+      }
+      void sendTelegramChatAction(chatId).catch(() => undefined);
+      try {
+        cleanText = await transcribeTelegramVoice(message.voice);
+        inputMode = "voice";
+      } catch (error) {
+        console.error("ZYRON_TELEGRAM_TRANSCRIPTION_ERROR", error instanceof Error ? error.message : "unknown");
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: "No he podido transcribir esta nota de voz. Puedes repetirla o escribir el mensaje.",
+          replyToMessageId: message.message_id,
+        });
+        return json({ ok: true, transcriptionFailed: true });
+      }
+    }
+
     await appendChannelMessage({
       channel: CHANNEL,
       chatId,
       role: "user",
-      content: cleanText,
+      content: inputMode === "voice" ? `[Nota de voz transcrita] ${cleanText}` : cleanText,
       externalMessageId: `telegram:${chatId}:${message.message_id}:user`,
     });
     const history = await listRecentChannelMessages(CHANNEL, chatId);
@@ -241,6 +274,8 @@ export async function POST(request: Request) {
       updateId,
       provider,
       toolsUsed,
+      inputMode,
+      voiceDurationSeconds: inputMode === "voice" ? message.voice?.duration : undefined,
     });
     return json({ ok: true });
   } catch (error) {

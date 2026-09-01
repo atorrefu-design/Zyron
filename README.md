@@ -11,7 +11,7 @@ ZYRON no depende de que un Mac permanezca encendido. El núcleo vive en la nube;
 - Núcleo agente: skills contextuales, herramientas verificables y política determinista
 - Motores de IA: OpenAI directo y enrutador opcional a Claude/Gemini mediante Vercel AI Gateway
 - Memoria privada y portátil: PostgreSQL/Neon con importación Markdown y exportación JSON
-- Canales: web/PWA, companion iOS y gateway privado para Telegram
+- Canales: web/PWA, companion iOS y gateway privado para Telegram con texto y notas de voz
 - Cliente nativo iPhone: `ios/`
 - CI: GitHub Actions
 - Objetivo de despliegue del núcleo: Vercel
