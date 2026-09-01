@@ -44,8 +44,10 @@ test("Drive creation requires a separate explicit confirmation", () => {
   assert.equal(folderDraft.allowed, false);
   assert.equal(documentDraft.allowed, false);
   assert.match(folderDraft.reason, /mensaje posterior/);
+  assert.equal(authorizeAgentTool("create_drive_folder", "Sí, crea").allowed, true);
   assert.equal(authorizeAgentTool("create_drive_folder", "Confirmo, crea la carpeta").allowed, true);
   assert.equal(authorizeAgentTool("create_drive_document", "Sí, guarda el documento").allowed, true);
+  assert.equal(authorizeAgentTool("create_drive_folder", "Crea").allowed, false);
 });
 
 test("Drive creation inputs are bounded and sanitized", () => {
