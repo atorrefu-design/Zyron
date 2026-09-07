@@ -361,6 +361,35 @@ export async function getMemoryStats() {
   };
 }
 
+export async function listMemoryBlocksPage(page = 1, pageSize = 5) {
+  await ensureMemoryTables();
+  const safePageSize = Math.max(1, Math.min(Math.floor(pageSize) || 5, 10));
+  const countRows = await sql()`
+    SELECT COUNT(*)::int AS total
+    FROM zyron_memory_blocks
+    WHERE active
+  `;
+  const total = Number(countRows[0]?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / safePageSize));
+  const safePage = Math.max(1, Math.min(Math.floor(page) || 1, totalPages));
+  const offset = (safePage - 1) * safePageSize;
+  const rows = await sql()`
+    SELECT id, document_id, heading, section_path, content, position, priority, always_include, metadata, created_at, updated_at
+    FROM zyron_memory_blocks
+    WHERE active
+    ORDER BY document_id, position, created_at
+    LIMIT ${safePageSize}
+    OFFSET ${offset}
+  `;
+  return {
+    page: safePage,
+    pageSize: safePageSize,
+    total,
+    totalPages,
+    blocks: rows as MemoryBlock[],
+  };
+}
+
 async function activeMemoryBlocks(): Promise<MemoryBlock[]> {
   await ensureMemoryTables();
   const rows = await sql()`
