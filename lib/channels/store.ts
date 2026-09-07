@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { createPairingCode, hashPairingCode, normalizePairingCode } from "./security";
+import type { ChannelLocationObservation, CurrentChannelLocation } from "./location.ts";
 
 export type ChannelBinding = {
   channel: string;
@@ -84,6 +85,21 @@ export async function ensureChannelTables() {
     CREATE UNIQUE INDEX IF NOT EXISTS zyron_channel_message_external_id
     ON zyron_channel_messages (channel, external_message_id)
     WHERE external_message_id IS NOT NULL
+  `;
+  await sql()`
+    CREATE TABLE IF NOT EXISTS zyron_channel_locations (
+      channel TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      latitude DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+      longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+      horizontal_accuracy DOUBLE PRECISION,
+      live BOOLEAN NOT NULL DEFAULT FALSE,
+      telegram_message_id BIGINT NOT NULL,
+      observed_at TIMESTAMPTZ NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (channel, chat_id)
+    )
   `;
 }
 
@@ -302,4 +318,64 @@ export async function clearChannelMessages(channel: string, chatId: string) {
     RETURNING id
   `;
   return rows.length;
+}
+
+export async function saveChannelLocation(input: {
+  channel: string;
+  chatId: string;
+  location: ChannelLocationObservation;
+}) {
+  await ensureChannelTables();
+  await sql()`
+    INSERT INTO zyron_channel_locations (
+      channel, chat_id, latitude, longitude, horizontal_accuracy, live,
+      telegram_message_id, observed_at, expires_at
+    ) VALUES (
+      ${input.channel}, ${input.chatId}, ${input.location.latitude}, ${input.location.longitude},
+      ${input.location.horizontalAccuracy}, ${input.location.live}, ${input.location.telegramMessageId},
+      ${input.location.observedAt}, ${input.location.expiresAt}
+    )
+    ON CONFLICT (channel, chat_id) DO UPDATE SET
+      latitude = EXCLUDED.latitude,
+      longitude = EXCLUDED.longitude,
+      horizontal_accuracy = EXCLUDED.horizontal_accuracy,
+      live = EXCLUDED.live,
+      telegram_message_id = EXCLUDED.telegram_message_id,
+      observed_at = EXCLUDED.observed_at,
+      expires_at = EXCLUDED.expires_at,
+      updated_at = NOW()
+  `;
+}
+
+export async function getCurrentChannelLocation(channel: string, chatId: string): Promise<CurrentChannelLocation | null> {
+  await ensureChannelTables();
+  await sql()`
+    DELETE FROM zyron_channel_locations
+    WHERE expires_at <= NOW()
+  `;
+  const rows = await sql()`
+    SELECT
+      latitude,
+      longitude,
+      horizontal_accuracy AS "horizontalAccuracy",
+      live,
+      telegram_message_id AS "telegramMessageId",
+      observed_at AS "observedAt",
+      expires_at AS "expiresAt",
+      updated_at AS "updatedAt"
+    FROM zyron_channel_locations
+    WHERE channel = ${channel} AND chat_id = ${chatId} AND expires_at > NOW()
+    LIMIT 1
+  `;
+  return (rows[0] as CurrentChannelLocation | undefined) || null;
+}
+
+export async function clearChannelLocation(channel: string, chatId: string) {
+  await ensureChannelTables();
+  const rows = await sql()`
+    DELETE FROM zyron_channel_locations
+    WHERE channel = ${channel} AND chat_id = ${chatId}
+    RETURNING chat_id
+  `;
+  return rows.length > 0;
 }
