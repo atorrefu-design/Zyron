@@ -11,7 +11,7 @@ Telegram es el primer canal externo de ZYRON. Utiliza el mismo núcleo agente, l
 3. El webhook valida `X-Telegram-Bot-Api-Secret-Token` antes de leer el cuerpo.
 4. La base de datos comprueba que el usuario y el chat privado están vinculados.
 5. Un registro idempotente evita volver a ejecutar una actualización repetida.
-6. ZYRON recupera un historial temporal del canal, ejecuta el núcleo agente y responde al mismo chat.
+6. ZYRON recupera un historial temporal del canal y, si está vigente, únicamente la última ubicación autorizada; ejecuta el núcleo agente y responde al mismo chat.
 7. Las notas de voz autorizadas se descargan temporalmente desde Telegram, se transcriben y se descartan sin persistir el audio.
 
 La configuración y el estado se gestionan desde `/channels`. Su API, `/api/channels/telegram`, continúa protegida por la sesión del propietario.
@@ -44,6 +44,22 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 - `/start` o `/help`: ayuda del canal.
 - `/status`: confirma que el chat está conectado.
 - `/reset`: elimina el historial temporal de Telegram. No modifica la memoria permanente.
+- `/location`: comprueba si ZYRON dispone de una ubicación vigente.
+- `/forget_location`: elimina inmediatamente la ubicación temporal guardada por ZYRON.
+- `/memoria tema`: busca bloques relevantes directamente en PostgreSQL/Neon, sin modelo de IA.
+- `/memoria_toda 1`: recorre todos los bloques activos de memoria mediante páginas.
+- `/memoria_estado`: muestra documentos, bloques y revisiones disponibles.
+
+También se enrutan sin IA las consultas de texto explícitas «Qué recuerdas de…», «Busca en tu memoria…» y `Memoria: tema`. La respuesta reproduce los bloques recuperados; no los resume ni los envía a ningún proveedor de modelos. Las consultas generales continúan utilizando el núcleo agente cuando no coinciden con esta ruta determinista.
+
+## Ubicación en tiempo real
+
+- Telegram exige que Aarón inicie manualmente **Compartir ubicación en tiempo real** desde el chat privado del bot.
+- El webhook acepta tanto el mensaje inicial como sus actualizaciones `edited_message` y reemplaza la posición anterior.
+- Solo se conserva la última posición, nunca un historial de movimientos.
+- Las actualizaciones no invocan IA ni generan respuestas repetidas.
+- La posición deja de utilizarse cuando caduca el periodo elegido en Telegram. Una ubicación estática caduca a los 30 minutos.
+- `/forget_location` borra la posición antes de su caducidad. Detenerla en Telegram impide nuevas actualizaciones; ZYRON también respetará la caducidad recibida.
 
 ## Notas de voz
 
@@ -60,6 +76,7 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 - Un usuario no vinculado nunca llega al modelo ni a las herramientas.
 - Los errores no registran el token del bot ni el secreto del webhook.
 - El historial temporal se elimina automáticamente tras 30 días.
+- La ubicación se guarda separada del historial y se elimina al caducar; las coordenadas no se incluyen en auditorías ni logs.
 - Las respuestas pendientes se conservan para reintentar el envío sin volver a ejecutar las herramientas.
 - Telegram no incorpora herramientas nuevas: borrados, mensajería a terceros y ejecución arbitraria continúan bloqueados.
 
