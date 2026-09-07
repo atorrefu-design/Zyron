@@ -13,6 +13,7 @@ import { buildMemoryContext } from "../memory";
 import { toolSummary } from "../tools/registry";
 import { renderAgentSkills, selectAgentSkills } from "./skills";
 import { agentToolDefinitions, executeAgentTool } from "./tools";
+import { agentLocationContext, type CurrentChannelLocation } from "../channels/location.ts";
 
 const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
@@ -63,6 +64,7 @@ function maxAgentSteps() {
 function systemInstructions(input: {
   skills: ReturnType<typeof selectAgentSkills>;
   memory: string;
+  currentLocation?: CurrentChannelLocation | null;
 }) {
   return [
     "# Núcleo agente ZYRON v0.10",
@@ -77,10 +79,14 @@ function systemInstructions(input: {
     `\n# Skills activas\n${renderAgentSkills(input.skills)}`,
     `\n# Capacidades registradas\n${toolSummary()}`,
     `\n# Memoria privada recuperada\n${input.memory}`,
+    `\n# Contexto temporal de ubicación\n${agentLocationContext(input.currentLocation || null)}`,
   ].join("\n\n");
 }
 
-export async function runZyronAgent(input: { messages: ZyronAIMessage[] }): Promise<ZyronAgentResult> {
+export async function runZyronAgent(input: {
+  messages: ZyronAIMessage[];
+  currentLocation?: CurrentChannelLocation | null;
+}): Promise<ZyronAgentResult> {
   const lastUserMessage = [...input.messages].reverse().find((message) => message.role === "user")?.content?.trim();
   if (!lastUserMessage) throw new Error("Falta el mensaje del usuario");
 
@@ -91,7 +97,11 @@ export async function runZyronAgent(input: { messages: ZyronAIMessage[] }): Prom
     return { context: "La memoria privada no está disponible temporalmente.", blocks: [] };
   });
   const conversation: ChatCompletionMessageParam[] = [
-    { role: "system", content: systemInstructions({ skills, memory: memory.context }) },
+    { role: "system", content: systemInstructions({
+      skills,
+      memory: memory.context,
+      currentLocation: input.currentLocation,
+    }) },
     ...recentMessages(input.messages, selection.prompt),
   ];
   const client = clientFor(selection.provider);

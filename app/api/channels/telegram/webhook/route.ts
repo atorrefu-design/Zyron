@@ -5,12 +5,15 @@ import {
   appendChannelMessage,
   claimChannelUpdate,
   clearChannelMessages,
+  clearChannelLocation,
   completeChannelUpdate,
   failChannelUpdate,
   getChannelBinding,
+  getCurrentChannelLocation,
   listRecentChannelMessages,
   redeemChannelPairing,
   saveChannelUpdateReply,
+  saveChannelLocation,
 } from "../../../../../lib/channels/store";
 import {
   isValidTelegramWebhookSecret,
@@ -20,6 +23,7 @@ import {
 import {
   sendTelegramChatAction,
   sendTelegramMessage,
+  setTelegramWebhook,
   telegramWebhookSecret,
   type TelegramMessage,
   type TelegramUpdate,
@@ -30,7 +34,17 @@ import {
   validateTelegramVoice,
 } from "../../../../../lib/channels/transcription";
 import { recordAction } from "../../../../../lib/db";
-import { validSharedLocation } from "../../../../../lib/maps-links";
+import { telegramLocationObservation } from "../../../../../lib/channels/location.ts";
+import {
+  directMemoryQuery,
+  renderMemoryPage,
+  renderMemorySearch,
+} from "../../../../../lib/channels/memory-access.ts";
+import {
+  getMemoryStats,
+  listMemoryBlocksPage,
+  searchMemoryBlocks,
+} from "../../../../../lib/memory.ts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -100,7 +114,8 @@ export async function POST(request: Request) {
     return json({ error: "JSON no válido" }, 400);
   }
 
-  const message = update.message;
+  const message = update.message || update.edited_message;
+  const isEditedMessage = Boolean(!update.message && update.edited_message);
   if (!message || message.chat.type !== "private" || message.from?.is_bot) {
     return json({ ok: true, ignored: true });
   }
@@ -176,19 +191,91 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "ZYRON está conectado. Escríbeme, envíame una nota de voz o comparte tu ubicación para calcular rutas desde donde estés. Comandos disponibles: /status para comprobar el canal y /reset para borrar solo el historial temporal de Telegram.",
+        reply: "ZYRON está conectado. Escríbeme, envíame una nota de voz o comparte tu ubicación en tiempo real. Memoria sin IA: /memoria tema, /memoria_toda 1 y /memoria_estado. Otros comandos: /status, /location, /forget_location y /reset.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
     }
     if (command?.name === "status") {
+      const currentLocation = await getCurrentChannelLocation(CHANNEL, chatId);
       await deliverReply({
         chatId,
         updateId,
-        reply: "Canal Telegram conectado al núcleo privado de ZYRON.",
+        reply: currentLocation
+          ? `Canal Telegram conectado. Ubicación ${currentLocation.live ? "en tiempo real" : "reciente"} disponible hasta ${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", dateStyle: "short", timeStyle: "short" }).format(new Date(currentLocation.expiresAt))}.`
+          : "Canal Telegram conectado. No hay una ubicación actual válida compartida.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
+    }
+    if (command?.name === "location") {
+      const currentLocation = await getCurrentChannelLocation(CHANNEL, chatId);
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: currentLocation
+          ? `Tengo una ubicación ${currentLocation.live ? "en tiempo real" : "reciente"} válida. Última actualización: ${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", dateStyle: "short", timeStyle: "medium" }).format(new Date(currentLocation.observedAt))}.`
+          : "No tengo una ubicación vigente. En Telegram pulsa el clip → Ubicación → Compartir ubicación en tiempo real.",
+        replyToMessageId: message.message_id,
+      });
+      return json({ ok: true });
+    }
+    if (command?.name === "forget_location") {
+      const removed = await clearChannelLocation(CHANNEL, chatId);
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: removed ? "He eliminado la ubicación guardada por ZYRON." : "ZYRON no tenía ninguna ubicación guardada.",
+        replyToMessageId: message.message_id,
+      });
+      await audit("channel_location_cleared", "Eliminó la ubicación temporal del canal.");
+      return json({ ok: true });
+    }
+    if (command?.name === "memoria_estado") {
+      const stats = await getMemoryStats();
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: `Memoria privada conectada: ${stats.documents} documento${stats.documents === 1 ? "" : "s"}, ${stats.blocks} bloques activos y ${stats.revisions} revisiones. Consulta directa, sin IA.`,
+        replyToMessageId: message.message_id,
+      });
+      return json({ ok: true, directMemory: true });
+    }
+    if (command?.name === "memoria_toda") {
+      const requestedPage = Number(command.argument || 1);
+      const page = await listMemoryBlocksPage(Number.isFinite(requestedPage) ? requestedPage : 1, 5);
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: renderMemoryPage(page),
+        replyToMessageId: message.message_id,
+      });
+      await audit("channel_memory_page_read", "Consultó una página de la memoria privada sin IA.", {
+        page: page.page,
+        blocks: page.blocks.length,
+      });
+      return json({ ok: true, directMemory: true });
+    }
+    if (command?.name === "memoria") {
+      const query = command.argument.trim();
+      if (!query) {
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: "Escribe /memoria seguido del tema que quieres consultar. Ejemplo: /memoria equipo de baloncesto. Para recorrerla entera: /memoria_toda 1.",
+          replyToMessageId: message.message_id,
+        });
+        return json({ ok: true, directMemory: true });
+      }
+      const matches = await searchMemoryBlocks(query, { limit: 5, includeAlways: false });
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: renderMemorySearch(query, matches),
+        replyToMessageId: message.message_id,
+      });
+      await audit("channel_memory_searched", "Buscó directamente en la memoria privada sin IA.", { matches: matches.length });
+      return json({ ok: true, directMemory: true });
     }
     if (command?.name === "reset") {
       const removed = await clearChannelMessages(CHANNEL, chatId);
@@ -201,7 +288,45 @@ export async function POST(request: Request) {
       await audit("channel_history_cleared", "Borró el historial temporal de Telegram.", { removed });
       return json({ ok: true });
     }
-    if (!text && !message.voice && !message.location) {
+    if (message.location) {
+      const observation = telegramLocationObservation({
+        message_id: message.message_id,
+        date: message.date,
+        edit_date: message.edit_date,
+        location: message.location,
+      });
+      if (!observation) {
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: "La ubicación recibida no es válida. Compártela de nuevo desde Telegram.",
+          replyToMessageId: message.message_id,
+        });
+        return json({ ok: true, locationRejected: true });
+      }
+      if (isEditedMessage && !observation.live) {
+        await clearChannelLocation(CHANNEL, chatId);
+        await completeChannelUpdate(CHANNEL, updateId);
+        return json({ ok: true, liveLocationStopped: true });
+      }
+      await saveChannelLocation({ channel: CHANNEL, chatId, location: observation });
+      if (observation.live && !isEditedMessage) {
+        await setTelegramWebhook();
+      }
+      if (isEditedMessage) {
+        await completeChannelUpdate(CHANNEL, updateId);
+        return json({ ok: true, liveLocationUpdated: true });
+      }
+      const reply = observation.live
+        ? "Ubicación en tiempo real activada. ZYRON usará automáticamente la posición más reciente mientras Telegram siga compartiéndola. No guardaré un historial de tus movimientos."
+        : "Ubicación recibida. La usaré durante 30 minutos; para acceso continuo, comparte una ubicación en tiempo real.";
+      await deliverReply({ chatId, updateId, reply, replyToMessageId: message.message_id });
+      await audit("channel_location_shared", observation.live
+        ? "Activó la ubicación en tiempo real del canal."
+        : "Compartió una ubicación temporal con el canal.", { live: observation.live });
+      return json({ ok: true, liveLocation: observation.live });
+    }
+    if (!text && !message.voice) {
       await deliverReply({
         chatId,
         updateId,
@@ -212,7 +337,7 @@ export async function POST(request: Request) {
     }
 
     let cleanText = text.slice(0, 4_096);
-    let inputMode: "text" | "voice" | "location" = "text";
+    let inputMode: "text" | "voice" = "text";
     if (!cleanText && message.voice) {
       const validation = validateTelegramVoice(message.voice);
       if (!validation.ok) {
@@ -239,20 +364,21 @@ export async function POST(request: Request) {
         return json({ ok: true, transcriptionFailed: true });
       }
     }
-    if (!cleanText && message.location) {
-      if (!validSharedLocation(message.location.latitude, message.location.longitude)) {
+
+    if (inputMode === "text") {
+      const memoryQuery = directMemoryQuery(cleanText);
+      if (memoryQuery) {
+        const matches = await searchMemoryBlocks(memoryQuery, { limit: 5, includeAlways: false });
         await deliverReply({
           chatId,
           updateId,
-          reply: "La ubicación recibida no es válida. Compártela de nuevo desde Telegram.",
+          reply: renderMemorySearch(memoryQuery, matches),
           replyToMessageId: message.message_id,
         });
-        return json({ ok: true, locationRejected: true });
+        await audit("channel_memory_searched", "Buscó directamente en la memoria privada sin IA.", { matches: matches.length });
+        return json({ ok: true, directMemory: true });
       }
-      inputMode = "location";
-      cleanText = `[Ubicación compartida por Aarón] latitud=${message.location.latitude.toFixed(6)} longitud=${message.location.longitude.toFixed(6)}`;
     }
-
     await appendChannelMessage({
       channel: CHANNEL,
       chatId,
@@ -267,7 +393,8 @@ export async function POST(request: Request) {
     let provider: string | null = null;
     let toolsUsed: string[] = [];
     try {
-      const result = await runZyronAgent({ messages: history });
+      const currentLocation = await getCurrentChannelLocation(CHANNEL, chatId);
+      const result = await runZyronAgent({ messages: history, currentLocation });
       reply = result.reply;
       provider = result.provider;
       toolsUsed = result.trace.map((item) => item.tool);

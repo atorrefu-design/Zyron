@@ -16,6 +16,7 @@ export type TelegramMessage = {
   from?: TelegramUser;
   chat: { id: number; type: string };
   date: number;
+  edit_date?: number;
   text?: string;
   voice?: TelegramVoice;
   location?: TelegramLocation;
@@ -39,6 +40,7 @@ export type TelegramVoice = {
 export type TelegramUpdate = {
   update_id: number;
   message?: TelegramMessage;
+  edited_message?: TelegramMessage;
 };
 
 export type TelegramBot = {
@@ -197,7 +199,7 @@ export async function setTelegramWebhook(options?: { dropPendingUpdates?: boolea
   const result = await telegramApi<boolean>("setWebhook", {
     url,
     secret_token: telegramWebhookSecret(),
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "edited_message"],
     max_connections: 4,
     drop_pending_updates: Boolean(options?.dropPendingUpdates),
   });
