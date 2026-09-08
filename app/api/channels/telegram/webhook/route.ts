@@ -442,34 +442,39 @@ export async function POST(request: Request) {
       }
     }
 
-    if (inputMode === "text") {
-      if (looksLikeMemoryWriteRequest(cleanText)) {
-        const history = await listRecentChannelMessages(CHANNEL, chatId, 24);
-        const memoryWrite = resolveMemoryWriteRequest(cleanText, history);
-        if (memoryWrite) {
-          await saveTelegramMemory({
-            chatId,
-            updateId,
-            messageId: message.message_id,
-            userText: cleanText,
-            fact: memoryWrite.fact,
-            source: memoryWrite.source,
-          });
-          return json({ ok: true, directMemoryWrite: true });
-        }
-      }
-      const memoryQuery = directMemoryQuery(cleanText);
-      if (memoryQuery) {
-        const matches = await searchMemoryBlocks(memoryQuery, { limit: 5, includeAlways: false });
-        await deliverReply({
+    if (looksLikeMemoryWriteRequest(cleanText)) {
+      const history = await listRecentChannelMessages(CHANNEL, chatId, 24);
+      const memoryWrite = resolveMemoryWriteRequest(cleanText, history);
+      if (memoryWrite) {
+        await saveTelegramMemory({
           chatId,
           updateId,
-          reply: renderMemorySearch(memoryQuery, matches),
-          replyToMessageId: message.message_id,
+          messageId: message.message_id,
+          userText: cleanText,
+          fact: memoryWrite.fact,
+          source: memoryWrite.source,
         });
-        await audit("channel_memory_searched", "Buscó directamente en la memoria privada sin IA.", { matches: matches.length });
-        return json({ ok: true, directMemory: true });
+        return json({
+          ok: true,
+          directMemoryWrite: true,
+          inputMode,
+          creditsUsed: inputMode === "text" ? false : "transcription_only",
+        });
       }
+    }
+    const memoryQuery = directMemoryQuery(cleanText);
+    if (memoryQuery) {
+      const matches = await searchMemoryBlocks(memoryQuery, { limit: 5, includeAlways: false });
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: renderMemorySearch(memoryQuery, matches),
+        replyToMessageId: message.message_id,
+      });
+      await audit("channel_memory_searched", "Buscó directamente en la memoria privada sin IA.", { matches: matches.length });
+      return json({ ok: true, directMemory: true, inputMode });
+    }
+    if (inputMode === "text") {
       const currentInfoQuery = directCurrentInfoQuery(cleanText);
       if (currentInfoQuery) {
         await appendChannelMessage({

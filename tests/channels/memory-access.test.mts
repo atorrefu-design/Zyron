@@ -62,6 +62,40 @@ test("Guárdalo en la memoria confirms the previous proposed fact", () => {
   assert.equal(authorizeAgentTool("remember_fact", "Guárdalo en la memoria").allowed, true);
 });
 
+test("Sí, guarda memoria follows the deterministic Telegram write path", () => {
+  const history = [
+    { role: "user" as const, content: "Biel estará de baja hasta aproximadamente el 22 de septiembre" },
+    { role: "assistant" as const, content: "¿Quieres que lo guarde en la memoria de ZYRON?" },
+  ];
+  assert.equal(looksLikeMemoryWriteRequest("Sí, guarda memoria"), true);
+  assert.deepEqual(resolveMemoryWriteRequest("Sí, guarda memoria", history), {
+    fact: "Biel estará de baja hasta aproximadamente el 22 de septiembre",
+    source: "confirmed_previous",
+  });
+  assert.equal(authorizeAgentTool("remember_fact", "Sí, guarda memoria").allowed, true);
+});
+
+test("option A retries the original fact instead of saving a confirmation", () => {
+  const history = [
+    { role: "user" as const, content: "Guarda en tu memoria que Biel volverá aproximadamente el 22 de septiembre" },
+    { role: "assistant" as const, content: "No he podido guardar la memoria. Opción A: inténtalo de nuevo." },
+    { role: "user" as const, content: "Sí, guarda memoria" },
+    { role: "assistant" as const, content: "La API devolvió ok=false. A) Intento de nuevo inmediatamente." },
+  ];
+  assert.equal(looksLikeMemoryWriteRequest("A"), true);
+  assert.deepEqual(resolveMemoryWriteRequest("A", history), {
+    fact: "Biel volverá aproximadamente el 22 de septiembre",
+    source: "confirmed_previous",
+  });
+});
+
+test("option A is never treated as memory without a memory prompt", () => {
+  const history = [
+    { role: "assistant" as const, content: "A) Crear tarea. B) Cancelar." },
+  ];
+  assert.equal(resolveMemoryWriteRequest("A", history), null);
+});
+
 test("a retry recovers the original fact after a failed memory write", () => {
   const history = [
     { role: "user" as const, content: "Descartamos el fichaje de Eloy" },
