@@ -15,6 +15,15 @@ export function weatherCodeLabel(code: number) {
   return "condiciones variables";
 }
 
+export type WeatherHorizon = "today" | "tomorrow";
+
+export function weatherRequestHorizon(query: string): WeatherHorizon | null {
+  const clean = query.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (!/\b(tiempo|clima|lluvia|temperatura|prevision|pronostico)\b/.test(clean)) return null;
+  if (/\b(hoy|ahora|actual|hace)\b/.test(clean)) return "today";
+  return "tomorrow";
+}
+
 export function weatherForecastUrl(latitude: number, longitude: number) {
   if (!validSharedLocation(latitude, longitude)) throw new Error("weather_invalid_location");
   const params = new URLSearchParams({
@@ -74,4 +83,21 @@ export async function getWeatherForecast(latitude: number, longitude: number) {
       precipitationProbability: daily.precipitation_probability_max?.[index] ?? null,
     })),
   };
+}
+
+export function formatWeatherReply(
+  forecast: Awaited<ReturnType<typeof getWeatherForecast>>,
+  horizon: WeatherHorizon,
+  locationLabel: string,
+) {
+  const day = forecast.days[horizon === "tomorrow" ? 1 : 0];
+  if (!day) throw new Error("weather_day_unavailable");
+  const period = horizon === "tomorrow" ? "mañana" : "hoy";
+  const temperatures = day.minC === null || day.maxC === null
+    ? "temperaturas no disponibles"
+    : `mínima de ${Math.round(day.minC)} °C y máxima de ${Math.round(day.maxC)} °C`;
+  const rain = day.precipitationProbability === null
+    ? "sin dato fiable de probabilidad de lluvia"
+    : `${Math.round(day.precipitationProbability)} % de probabilidad máxima de lluvia`;
+  return `En ${locationLabel}, ${period}: ${day.condition}, ${temperatures} y ${rain}. Fuente: Open-Meteo.`;
 }
