@@ -28,7 +28,7 @@ function cleanFact(value: string) {
 
 function isMemoryConfirmation(text: string) {
   const clean = normalized(text);
-  return /^(?:si )?(?:guardalo(?: en (?:tu |la )?memoria)?|hazlo|confirmo|intentalo de nuevo|reintentalo)$/.test(clean);
+  return /^(?:a|(?:si )?(?:guarda(?:lo)?(?: en)? (?:(?:tu|la) )?memoria|guardalo|hazlo|confirmo|intentalo de nuevo|intenta de nuevo|reintentalo|reintenta))$/.test(clean);
 }
 
 function explicitMemoryFact(text: string) {
@@ -36,14 +36,24 @@ function explicitMemoryFact(text: string) {
   const patterns = [
     /^\/guardar_memoria(?:@[a-z0-9_]+)?\s+(.+)$/i,
     /^(?:recuerda|memoriza)\s+(?:que\s+)?(.+)$/i,
-    /^guarda\s+(?:en\s+(?:(?:tu|la)\s+)?memoria\s+)?(?:que\s+)?(.+)$/i,
+    /^guarda\s+(?:en\s+)?(?:(?:tu|la)\s+)?memoria\s+(?:que\s+)?(.+)$/i,
     /^guarda\s+(.+?)\s+en\s+(?:(?:tu|la)\s+)?memoria$/i,
+    /^guarda\s+(?:que\s+)?(.+)$/i,
   ];
   for (const pattern of patterns) {
     const fact = clean.match(pattern)?.[1];
-    if (fact) return cleanFact(fact);
+    if (fact && !/^memoria$/i.test(fact.trim())) return cleanFact(fact);
   }
   return null;
+}
+
+function hasMemoryConfirmationContext(history: ChannelMessage[]) {
+  const content = history
+    .filter((message) => message.role === "assistant")
+    .slice(-4)
+    .map((message) => normalized(message.content))
+    .join(" ");
+  return /\bmemoria\b/.test(content) && /\b(?:guarda|guarde|guardado|guardar|reintenta|intenta|opcion|api|fallo|error)\b/.test(content);
 }
 
 export function looksLikeMemoryWriteRequest(text: string) {
@@ -54,6 +64,7 @@ export function resolveMemoryWriteRequest(text: string, history: ChannelMessage[
   const explicit = explicitMemoryFact(text);
   if (explicit) return { fact: explicit, source: "explicit" as const };
   if (!isMemoryConfirmation(text)) return null;
+  if (!hasMemoryConfirmationContext(history)) return null;
 
   const lastMemoryAssistantIndex = history.findLastIndex((message) =>
     message.role === "assistant" && /memoria|recordar|guardad|guardarlo/i.test(message.content),
@@ -63,7 +74,9 @@ export function resolveMemoryWriteRequest(text: string, history: ChannelMessage[
   for (let index = lastMemoryAssistantIndex - 1; index >= 0; index -= 1) {
     const message = history[index];
     if (message.role !== "user") continue;
-    if (looksLikeMemoryWriteRequest(message.content) || message.content.trim().startsWith("/")) continue;
+    const priorExplicit = explicitMemoryFact(message.content);
+    if (priorExplicit) return { fact: priorExplicit, source: "confirmed_previous" as const };
+    if (isMemoryConfirmation(message.content) || message.content.trim().startsWith("/")) continue;
     const fact = cleanFact(message.content);
     if (fact) return { fact, source: "confirmed_previous" as const };
   }

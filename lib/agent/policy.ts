@@ -98,7 +98,7 @@ function explicitlyRequestsMemory(message: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
-  return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:en\s+(?:(?:tu|la)\s+)?memoria)|guardalo(?:\s+en\s+(?:(?:tu|la)\s+)?memoria)?|a\s+partir\s+de\s+ahora)(?:\b|\s|[,.!])/i.test(clean);
+  return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:(?:en\s+)?(?:(?:tu|la)\s+)?memoria)|guardalo(?:\s+en\s+(?:(?:tu|la)\s+)?memoria)?|a\s+partir\s+de\s+ahora)(?:\b|\s|[,.!])/i.test(clean);
 }
 
 function normalizeRequest(message: string) {
