@@ -1,76 +1,45 @@
 # Arquitectura de ZYRON
 
-## Objetivo
+## Principio
 
-ZYRON es un asistente personal privado, accesible desde móvil y web, cuyo núcleo no depende de una interfaz concreta de inteligencia artificial.
+ZYRON es un único asistente personal privado. Web, app iOS, voz y Telegram son adaptadores de entrada y salida; no poseen una identidad, memoria ni reglas propias.
 
-## Flujo actual
+## Núcleo actual
 
 ```text
-PWA / navegador móvil
-        |
-        v
-proxy.ts: autenticación privada
-        |
-        v
-/api/chat: enrutador de intenciones
-   |          |          |
-   v          v          v
-OpenAI       Mem0       Neon
-conversación memoria    tareas
+Web/PWA ────────────────┐
+iOS / voz ─────────────┼──► políticas + agente ZYRON ──► herramientas autorizadas
+Telegram ──────────────┘              │
+                                      └──► PostgreSQL/Neon
+                                           memoria, tareas, auditoría y canales
 ```
 
-## Módulos actuales
+- La memoria canónica reside en las tablas `zyron_memory_*` de PostgreSQL/Neon.
+- Las tareas, vínculos de canales, ubicación temporal y auditoría residen en el mismo backend.
+- El agente común ejecuta tareas, calendario, Gmail, Drive, mapas e información actual.
+- Las rutas deterministas de memoria en Telegram leen o escriben la misma memoria sin invocar IA.
+- Los conectores externos no son fuentes alternativas de verdad.
 
-### Autenticación
+## Frontera del dispositivo
 
-- Sesión firmada mediante cookie `HttpOnly`.
-- Clave de propietario y secreto almacenados únicamente como variables de entorno.
-- Rutas web privadas redirigidas a `/login`.
-- Rutas API privadas bloqueadas con estado `401`.
+Las acciones de servidor pueden iniciarse desde cualquier canal autorizado. Las acciones propias de iOS —abrir apps, llamadas, SMS, WhatsApp, grabación, contactos y notificaciones— solo pueden ejecutarse cuando el companion está presente y autorizado. Telegram debe explicarlo y nunca simular una ejecución.
 
-### Conversación
+## Confirmaciones
 
-- Contexto reciente limitado para controlar latencia y coste.
-- Recuperación previa de recuerdos relevantes.
-- Respuesta en castellano de España.
-- Ninguna acción se confirma antes de haber sido ejecutada realmente.
+- Lecturas y acciones reversibles de bajo riesgo se ejecutan de forma inmediata.
+- Crear eventos y archivos en Drive requiere resumen y confirmación posterior.
+- Eliminar tareas o eventos requiere una coincidencia única y confirmación posterior.
+- Enviar mensajes a terceros, cambiar permisos o ejecutar acciones arbitrarias no forma parte del núcleo autorizado.
 
-### Memoria
+## Reglas operativas
 
-- Mem0 almacena hechos, preferencias, proyectos, rutinas, objetivos y decisiones útiles.
-- No debe guardar saludos, secretos ni texto transitorio.
-- Los recuerdos recuperados son contexto, no una fuente infalible.
+1. Todos los canales utilizan la misma memoria y políticas.
+2. Ninguna acción se anuncia como realizada antes del resultado real de la herramienta.
+3. No hay procesos autónomos o reintentos en segundo plano salvo petición explícita del propietario.
+4. Las claves permanecen exclusivamente en variables de entorno del servidor.
+5. Cada escritura relevante deja una traza de auditoría sin secretos ni coordenadas.
+6. La ubicación de Telegram conserva solo la observación vigente, nunca un historial.
 
-### Tareas
+## Deuda conocida
 
-- Persistencia en Neon.
-- Crear, listar, completar y eliminar.
-- Enrutado determinista para órdenes claras.
-- Clasificación mediante modelo para lenguaje natural ambiguo.
-- Aclaración obligatoria cuando varias tareas coinciden.
-
-### Voz
-
-- Reconocimiento de voz del navegador cuando está disponible.
-- Síntesis de voz española priorizada en el dispositivo.
-- Estados visibles: escuchando, pensando y hablando.
-
-## Reglas de seguridad
-
-1. Nunca exponer claves con variables `NEXT_PUBLIC_*`.
-2. Nunca registrar secretos en consola.
-3. No ejecutar una operación destructiva con coincidencias ambiguas.
-4. Validar entradas antes de acceder a la base de datos.
-5. Mantener los conectores desacoplados del núcleo.
-6. Comprobar el despliegue de Vercel después de cada cambio relevante.
-
-## Próximos bloques
-
-1. Fechas y horas naturales para tareas.
-2. Objetivos y proyectos persistentes.
-3. Panel revisable de memoria.
-4. Google Calendar.
-5. Gmail.
-6. Ubicación, rutas y hora recomendada de salida.
-7. Voz continua con control de interrupciones.
+La interfaz web histórica aún contiene rutas deterministas propias en `/api/chat`. Debe migrarse gradualmente al mismo catálogo del agente sin interrumpir las funciones ya operativas. Telegram y el fallback del companion ya ejecutan el núcleo común.
