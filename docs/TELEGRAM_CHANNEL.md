@@ -49,8 +49,11 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 - `/memoria tema`: busca bloques relevantes directamente en PostgreSQL/Neon, sin modelo de IA.
 - `/memoria_toda 1`: recorre todos los bloques activos de memoria mediante páginas.
 - `/memoria_estado`: muestra documentos, bloques y revisiones disponibles.
+- `/guardar_memoria hecho`: escribe directamente en la memoria canónica, sin modelo de IA.
 
 También se enrutan sin IA las consultas de texto explícitas «Qué recuerdas de…», «Busca en tu memoria…» y `Memoria: tema`. La respuesta reproduce los bloques recuperados; no los resume ni los envía a ningún proveedor de modelos. Las consultas generales continúan utilizando el núcleo agente cuando no coinciden con esta ruta determinista.
+
+Las órdenes «Recuerda que…» y «Guarda en tu memoria que…» se escriben directamente. Cuando ZYRON haya propuesto guardar el mensaje anterior, «Guárdalo en la memoria» y un posterior «Inténtalo de nuevo» recuperan ese hecho pendiente del historial temporal y lo guardan solo después de la confirmación visible. Web, app y Telegram utilizan las mismas tablas `zyron_memory_*`; no existe una memoria paralela del canal.
 
 ## Ubicación en tiempo real
 
