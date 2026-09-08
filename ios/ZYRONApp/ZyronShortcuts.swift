@@ -32,6 +32,33 @@ struct TalkToZyronIntent: AppIntent {
     }
 }
 
+struct VehicleModeZyronIntent: AppIntent {
+    static var title: LocalizedStringResource = "Iniciar modo coche ZYRON"
+    static var description = IntentDescription(
+        "Al conectarse al Bluetooth del coche, ZYRON saluda, pregunta el destino e inicia la ruta en Google Maps."
+    )
+    static var openAppWhenRun = true
+    static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+    @Parameter(title: "Nombre del coche")
+    var deviceName: String?
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        UserDefaults.standard.set(true, forKey: "zyron.intent.start-voice")
+        UserDefaults.standard.set(true, forKey: "zyron.intent.vehicle-mode")
+
+        if NativeAPIClient.shared.hasOwnerSession {
+            _ = try? await NativeAPIClient.shared.handleBluetoothConnection(
+                context: "vehicle",
+                action: "record_only",
+                deviceName: deviceName
+            )
+        }
+        return .result()
+    }
+}
+
 struct OpenZyronWebIntent: AppIntent {
     static var openAppWhenRun: Bool = true
     static var title: LocalizedStringResource = "Abrir ZYRON Web"
@@ -54,6 +81,16 @@ struct ZyronAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Hablar con ZYRON",
             systemImageName: "waveform.circle.fill"
+        )
+
+        AppShortcut(
+            intent: VehicleModeZyronIntent(),
+            phrases: [
+                "Activa el modo coche de \(.applicationName)",
+                "Inicia el modo coche con \(.applicationName)"
+            ],
+            shortTitle: "Modo coche ZYRON",
+            systemImageName: "car.fill"
         )
 
         AppShortcut(

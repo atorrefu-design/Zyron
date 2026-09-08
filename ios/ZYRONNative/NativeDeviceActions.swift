@@ -266,6 +266,39 @@ final class NativeDeviceActions: NSObject, CLLocationManagerDelegate {
         return false
     }
 
+    func startGoogleMapsNavigation(to destination: String) async -> Bool {
+        let cleanDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDestination.isEmpty else { return false }
+
+        var native = URLComponents()
+        native.scheme = "comgooglemaps"
+        native.host = ""
+        native.queryItems = [
+            URLQueryItem(name: "daddr", value: cleanDestination),
+            URLQueryItem(name: "directionsmode", value: "driving"),
+        ]
+
+        if let nativeURL = native.url, await openURL(nativeURL) {
+            NativeCapabilityLedger.shared.record(action: "navigation.google_maps", capabilityId: "maps.navigation.google", succeeded: true)
+            return true
+        }
+
+        var web = URLComponents(string: "https://www.google.com/maps/dir/")
+        web?.queryItems = [
+            URLQueryItem(name: "api", value: "1"),
+            URLQueryItem(name: "destination", value: cleanDestination),
+            URLQueryItem(name: "travelmode", value: "driving"),
+        ]
+        let opened: Bool
+        if let webURL = web?.url {
+            opened = await openURL(webURL)
+        } else {
+            opened = false
+        }
+        NativeCapabilityLedger.shared.record(action: "navigation.google_maps", capabilityId: "maps.navigation.google", succeeded: opened)
+        return opened
+    }
+
     private func resolvePersonalDestination(_ place: String) async throws -> String {
         _ = place
         throw NativeDeviceActionError.personalPlaceUnavailable

@@ -19,7 +19,8 @@ final class RealtimeToolRouter {
     private init() {}
 
     func execute(_ call: RealtimeToolCall) async -> RealtimeToolOutput {
-        let query = decodeQuery(call.arguments)
+        let argumentKey = call.name == "iniciar_navegacion_google_maps" ? "destination" : "query"
+        let query = decodeString(call.arguments, key: argumentKey)
         guard !query.isEmpty else {
             return RealtimeToolOutput(
                 callID: call.callID,
@@ -31,6 +32,19 @@ final class RealtimeToolRouter {
 
         do {
             switch call.name {
+            case "iniciar_navegacion_google_maps":
+                let envelope = NativeActionEnvelope(
+                    action: "navigation.google_maps.start",
+                    input: query,
+                    capabilityId: "maps.navigation.google",
+                    payload: ["destination": query]
+                )
+                let result = await NativeActionDispatcher.shared.execute(envelope)
+                return RealtimeToolOutput(
+                    callID: call.callID,
+                    output: result.reply ?? (result.succeeded ? "Google Maps abierto con la ruta preparada." : "No he podido abrir Google Maps.")
+                )
+
             case "consultar_nucleo_zyron":
                 let reply = try await NativeAPIClient.shared.queryCore(
                     query,
@@ -88,10 +102,10 @@ final class RealtimeToolRouter {
         }
     }
 
-    private func decodeQuery(_ rawArguments: String) -> String {
+    private func decodeString(_ rawArguments: String, key: String) -> String {
         guard let data = rawArguments.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let query = object["query"] as? String else {
+              let query = object[key] as? String else {
             return ""
         }
         return query.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -15,6 +15,8 @@ final class ZyronAppController: ObservableObject {
     @Published private(set) var contactsAuthorization: PermissionBootstrapper.ContactsAuthorization = .notDetermined
 
     private static let alwaysOnPreferenceKey = "zyron.always-on-enabled"
+    private static let startVoiceIntentKey = "zyron.intent.start-voice"
+    private static let vehicleModeIntentKey = "zyron.intent.vehicle-mode"
 
     private let apiClient: NativeAPIClient
     private let locationProvider: NativeLocationProvider
@@ -61,9 +63,13 @@ final class ZyronAppController: ObservableObject {
     func restore() async {
         guard !didRestore else { return }
         didRestore = true
-        let shouldStartVoice = UserDefaults.standard.bool(forKey: "zyron.intent.start-voice")
+        let shouldStartVoice = UserDefaults.standard.bool(forKey: Self.startVoiceIntentKey)
+        let shouldStartVehicleMode = UserDefaults.standard.bool(forKey: Self.vehicleModeIntentKey)
         if shouldStartVoice {
-            UserDefaults.standard.set(false, forKey: "zyron.intent.start-voice")
+            UserDefaults.standard.set(false, forKey: Self.startVoiceIntentKey)
+        }
+        if shouldStartVehicleMode {
+            UserDefaults.standard.set(false, forKey: Self.vehicleModeIntentKey)
         }
         await refreshCloudStatus()
         await refreshNativePermissions()
@@ -77,7 +83,7 @@ final class ZyronAppController: ObservableObject {
             return
         }
         if shouldStartVoice {
-            await startManualConversation()
+            await startManualConversation(command: shouldStartVehicleMode ? VehicleModePrompt.command() : nil)
             return
         }
         guard UserDefaults.standard.bool(forKey: Self.alwaysOnPreferenceKey) else {
@@ -104,10 +110,12 @@ final class ZyronAppController: ObservableObject {
 
     func companionBecameActive() async {
         await refreshCloudStatus()
-        let shouldStartVoice = UserDefaults.standard.bool(forKey: "zyron.intent.start-voice")
+        let shouldStartVoice = UserDefaults.standard.bool(forKey: Self.startVoiceIntentKey)
+        let shouldStartVehicleMode = UserDefaults.standard.bool(forKey: Self.vehicleModeIntentKey)
         if shouldStartVoice {
-            UserDefaults.standard.set(false, forKey: "zyron.intent.start-voice")
-            await startManualConversation()
+            UserDefaults.standard.set(false, forKey: Self.startVoiceIntentKey)
+            UserDefaults.standard.set(false, forKey: Self.vehicleModeIntentKey)
+            await startManualConversation(command: shouldStartVehicleMode ? VehicleModePrompt.command() : nil)
             return
         }
         guard isAuthenticated, isAlwaysOnEnabled else { return }
@@ -169,7 +177,7 @@ final class ZyronAppController: ObservableObject {
         }
     }
 
-    func startManualConversation() async {
+    func startManualConversation(command: String? = nil) async {
         guard isAuthenticated else {
             statusMessage = "Primero conecta este iPhone con ZYRON."
             return
@@ -193,7 +201,7 @@ final class ZyronAppController: ObservableObject {
         }
 
         statusMessage = "Conectando conversación Realtime…"
-        runtime.startManualConversation()
+        runtime.startManualConversation(command: command)
     }
 
     func stopConversation() {

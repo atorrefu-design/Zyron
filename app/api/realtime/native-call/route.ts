@@ -43,6 +43,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
 "Cuando necesites llamar a una herramienta, no generes ninguna frase ni audio antes de la llamada: la llamada a la herramienta debe ser tu primera acción. Si Aarón pregunta únicamente qué hora es, después de obtener el dato responde únicamente «Son las HH:MM», sin día, fecha, contexto ni ninguna otra frase.",
       "Cuando Aarón pida tiendas, restaurantes, negocios, servicios o lugares físicos reales, usa buscar_lugares_reales. Nunca inventes una dirección ni afirmes que un negocio existe sin consultar esa herramienta.",
       "Cuando Aarón pida llamar a alguien, preparar un SMS o WhatsApp, abrir una app, reproducir música o iniciar navegación en el iPhone, usa ejecutar_accion_iphone. La herramienta aplica permisos, resolución de contactos y traspasos seguros; no afirmes que se ha enviado un mensaje ni que una llamada ha comenzado si solo se ha preparado.",
+      "Si recibes [ZYRON_MODO_COCHE_INICIO], es una instrucción interna: pronuncia exactamente el saludo y la pregunta indicados, sin leer la etiqueta ni explicar el proceso. En el siguiente turno, interpreta incluso una respuesta breve como destino y llama inmediatamente a iniciar_navegacion_google_maps. No pidas confirmación salvo que el destino sea vacío o realmente ambiguo.",
       "Si Aarón indica una ciudad, barrio o zona, basta con esa ubicación para buscar lugares reales; no le exijas una calle concreta. Si dice cerca de mí, usa la búsqueda de lugares y deja que ZYRON aplique la ubicación actual del iPhone.",
       "Al responder con lugares, di nombre y dirección de forma natural. No leas URLs salvo que Aarón las pida.",
     ].join(" "),
@@ -66,6 +67,22 @@ function buildRealtimeSession(outputMode: OutputMode) {
       output: { voice: "marin" },
     },
     tools: [
+      {
+        type: "function",
+        name: "iniciar_navegacion_google_maps",
+        description: "Inicia directamente una ruta de conducción en Google Maps. En modo coche debe usarse con el destino que Aarón acaba de pronunciar, aunque sea una respuesta breve.",
+        parameters: {
+          type: "object",
+          properties: {
+            destination: {
+              type: "string",
+              description: "Destino completo pronunciado por Aarón.",
+            },
+          },
+          required: ["destination"],
+          additionalProperties: false,
+        },
+      },
       {
         type: "function",
         name: "consultar_nucleo_zyron",
