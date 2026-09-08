@@ -1,9 +1,12 @@
-# Paridad de canales de ZYRON · auditoría v0.18
+# Paridad de canales de ZYRON · auditoría v0.20
 
 | Capacidad | Web | iOS companion | Telegram | Fuente común |
 |---|---|---|---|---|
 | Memoria | Lectura/escritura | Lectura/escritura | Lectura/escritura y comandos sin IA | PostgreSQL/Neon |
 | Tareas | Listar/crear/completar/borrar | Núcleo común | Listar/crear/completar/planificar/borrar | PostgreSQL/Neon |
+| Objetivos/proyectos | Lectura/escritura | Núcleo común | Listar/crear/vincular tareas | PostgreSQL/Neon |
+| Briefing y plan diario | Bajo demanda | Núcleo común | Bajo demanda, sin modelo de IA | Agenda + Gmail + tareas |
+| Diagnóstico y actividad | Lectura | Núcleo común | Lectura directa, sin modelo de IA | Salud + registro de acciones |
 | Calendario | Lectura/escritura | Núcleo común | Lectura/escritura | Google + política común |
 | Gmail | Lectura | Núcleo común | Lectura | Google + política común |
 | Drive | Lectura/escritura limitada | Núcleo común | Lectura/escritura limitada | Google + política común |
@@ -21,4 +24,7 @@ Telegram ya funciona como adaptador del núcleo compartido para capacidades de s
 - Borrado de tareas disponible con coincidencia única y confirmación posterior.
 - Consulta de información vigente disponible desde el agente común.
 - Comando `/capacidades` sin IA para mostrar el alcance real.
+- Órdenes `/tareas`, `/tarea`, `/completar`, `/plan`, `/briefing`, `/actividad` y `/diagnostico` resueltas por el núcleo determinista, sin modelo de razonamiento.
+- Objetivos compartidos: listar, crear y vincular tareas desde cualquier canal; las escrituras exigen una petición explícita del propietario.
+- Briefing tolerante a fallos parciales: si Calendar o Gmail no responden, las fuentes disponibles siguen apareciendo.
 - Mensaje de sistema que prohíbe fingir acciones nativas desde Telegram.
