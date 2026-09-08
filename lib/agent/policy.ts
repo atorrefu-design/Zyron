@@ -14,6 +14,7 @@ export type ZyronAgentToolName =
   | "remember_fact"
   | "read_calendar"
   | "create_calendar_event"
+  | "create_calendar_events"
   | "delete_calendar_event"
   | "search_places"
   | "get_driving_route"
@@ -64,6 +65,12 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
     requiresExplicitRequest: true,
     requiresConfirmation: true,
   },
+  create_calendar_events: {
+    risk: "medium",
+    effect: "reversible_write",
+    requiresExplicitRequest: true,
+    requiresConfirmation: true,
+  },
   delete_calendar_event: {
     risk: "high",
     effect: "reversible_write",
@@ -104,9 +111,23 @@ function explicitlyRequestsGoalAssignment(message: string) {
   return /\b(?:asigna|asignar|vincula|vincular|relaciona|relacionar|mete|incluir|incluye)\b[^.!?]{0,160}\b(?:tarea|objetivo|proyecto|meta)\b/.test(clean);
 }
 
-export function explicitlyConfirmsAgentAction(message: string) {
-  const clean = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-  return /^(?:si[,.!]?\s+crea(?:[,.!]|\s|$)|(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|guardalo|crea(?:\s+el)?\s+evento|crea(?:\s+la)?\s+carpeta|crea(?:\s+el)?\s+documento|guarda(?:\s+el)?\s+documento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[,.!]|\s|$))/.test(clean);
+export function explicitlyConfirmsAgentAction(message: string, tool?: ZyronAgentToolName) {
+  const clean = normalizeRequest(message).replace(/[.!]+$/, "");
+  if (/^(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirmada|confirma|adelante|hazlo)$/.test(clean)) return true;
+
+  if (tool === "create_calendar_event" || tool === "create_calendar_events" || !tool) {
+    if (/^(?:si[,.!]?\s+)?(?:confirmar\s+creacion|confirmo\s+la\s+creacion|crealo|crealos|crea(?:\s+el|\s+los)?\s+eventos?)$/.test(clean)) return true;
+  }
+  if (tool === "delete_calendar_event" || tool === "delete_task" || !tool) {
+    if (/^(?:si[,.!]?\s+)?(?:borralo|eliminalo|cancela(?:\s+el)?\s+evento)$/.test(clean)) return true;
+  }
+  if (tool === "create_drive_folder" || !tool) {
+    if (/^(?:(?:si|confirmo)[,.!]?\s+(?:crea|creala|crea(?:\s+la)?\s+carpeta)|(?:creala|crea\s+la\s+carpeta))$/.test(clean)) return true;
+  }
+  if (tool === "create_drive_document" || !tool) {
+    if (/^(?:(?:si|confirmo)[,.!]?\s+)?(?:guardalo|crea(?:\s+el)?\s+documento|guarda(?:\s+el)?\s+documento)$/.test(clean)) return true;
+  }
+  return false;
 }
 
 export const explicitlyConfirmsCalendarAction = explicitlyConfirmsAgentAction;
@@ -142,7 +163,7 @@ export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgen
     };
   }
 
-  if (policy.requiresConfirmation && !explicitlyConfirmsAgentAction(userMessage)) {
+  if (policy.requiresConfirmation && !explicitlyConfirmsAgentAction(userMessage, name)) {
     return {
       allowed: false,
       reason: "Antes de ejecutar esta escritura, ZYRON debe mostrar el resumen, el destino y el alcance; Aarón debe confirmarlo en un mensaje posterior.",

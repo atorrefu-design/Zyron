@@ -5,7 +5,7 @@ export type ZyronToolFailure = {
 
 export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToolFailure {
   const message = error instanceof Error ? error.message : String(error || "unknown");
-  const calendarWrite = tool === "create_calendar_event" || tool === "delete_calendar_event";
+  const calendarWrite = tool === "create_calendar_event" || tool === "create_calendar_events" || tool === "delete_calendar_event";
   const mapsRead = tool === "search_places" || tool === "get_driving_route";
   const gmailRead = tool === "search_gmail" || tool === "read_gmail_message";
   const driveRead = tool === "search_drive" || tool === "read_drive_file";

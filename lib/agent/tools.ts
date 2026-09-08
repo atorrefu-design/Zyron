@@ -236,6 +236,39 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "create_calendar_events",
+      description: "Crea de 2 a 10 eventos de Google Calendar como un único lote tras mostrar el resumen completo y recibir confirmación expresa. Úsala en vez de varias llamadas individuales.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          events: {
+            type: "array",
+            minItems: 2,
+            maxItems: 10,
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                start: { type: "string" },
+                end: { type: "string" },
+                all_day: { type: "boolean" },
+                location: { type: ["string", "null"] },
+                description: { type: ["string", "null"] },
+              },
+              required: ["title", "start", "end", "all_day", "location", "description"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["events"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "delete_calendar_event",
       description: "Busca y elimina un único evento real de Google Calendar únicamente después de mostrar cuál es y recibir confirmación expresa en un mensaje posterior.",
       strict: true,
@@ -508,6 +541,45 @@ async function createAgentCalendarEvent(args: Record<string, unknown>): Promise<
     location: event.location,
   });
   return { ok: true, summary: `Evento creado: ${event.title}.`, data: event };
+}
+
+async function createAgentCalendarEvents(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
+  const rawEvents = Array.isArray(args.events) ? args.events : [];
+  if (rawEvents.length < 2 || rawEvents.length > 10) {
+    return { ok: false, summary: "El lote debe contener entre 2 y 10 eventos." };
+  }
+  const events = rawEvents.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("calendar_event_fields_required");
+    return calendarEventArguments(item as Record<string, unknown>);
+  });
+  const created: Awaited<ReturnType<typeof createCalendarEvent>>[] = [];
+  try {
+    for (const event of events) created.push(await createCalendarEvent(event));
+  } catch (error) {
+    const rollback = await Promise.allSettled(created.map((event) => deleteCalendarEvent(event.id)));
+    const rollbackFailed = rollback.some((result) => result.status === "rejected");
+    await audit("calendar_batch_failed", "Falló la creación de un lote de eventos y se ejecutó la reversión.", {
+      requested: events.length,
+      createdBeforeFailure: created.length,
+      rollbackFailed,
+    });
+    if (rollbackFailed) {
+      return {
+        ok: false,
+        summary: "La creación del lote falló y no se han podido revertir todos los eventos. Revisa el calendario antes de repetir la orden.",
+        data: { created: created.map((event) => ({ id: event.id, title: event.title })) },
+      };
+    }
+    throw error;
+  }
+  await audit("calendar_events_created", `Creó ${created.length} eventos de calendario en un lote confirmado.`, {
+    eventIds: created.map((event) => event.id),
+  });
+  return {
+    ok: true,
+    summary: `${created.length} eventos creados correctamente.`,
+    data: created,
+  };
 }
 
 async function deleteAgentCalendarEvent(args: Record<string, unknown>): Promise<ZyronAgentToolResult> {
@@ -897,6 +969,7 @@ export async function executeAgentTool(input: {
 
     if (name === "read_calendar") return await readCalendar(args);
     if (name === "create_calendar_event") return await createAgentCalendarEvent(args);
+    if (name === "create_calendar_events") return await createAgentCalendarEvents(args);
     if (name === "delete_calendar_event") return await deleteAgentCalendarEvent(args);
     if (name === "search_places") return await searchAgentPlaces(args);
     if (name === "get_driving_route") return await getAgentDrivingRoute(args);

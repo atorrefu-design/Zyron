@@ -7,7 +7,7 @@ test("Telegram's shared agent exposes the priority server capabilities", () => {
   const names = new Set(Object.keys(listAgentToolPolicies()));
   for (const name of [
     "list_tasks", "create_task", "complete_task", "delete_task", "search_memory",
-    "remember_fact", "read_calendar", "search_gmail", "search_drive",
+    "remember_fact", "read_calendar", "create_calendar_events", "search_gmail", "search_drive",
     "get_driving_route", "search_current_web",
     "get_operational_briefing", "list_goals", "create_goal", "assign_task_to_goal",
     "get_system_status", "list_recent_actions",

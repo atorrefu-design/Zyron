@@ -12,8 +12,16 @@ test("calendar writes require a separate explicit confirmation", () => {
   assert.match(initial.reason, /confirmarlo/);
 
   assert.equal(authorizeAgentTool("create_calendar_event", "Confirmo").allowed, true);
+  assert.equal(authorizeAgentTool("create_calendar_event", "Confirmar creación").allowed, true);
+  assert.equal(authorizeAgentTool("create_calendar_events", "Confirmar creación").allowed, true);
+  assert.equal(authorizeAgentTool("create_calendar_events", "Sí, créalos").allowed, true);
   assert.equal(authorizeAgentTool("delete_calendar_event", "Sí, elimínalo").allowed, true);
   assert.equal(authorizeAgentTool("delete_calendar_event", "¿Cuál era?").allowed, false);
+});
+
+test("calendar creation wording cannot confirm a destructive action", () => {
+  assert.equal(authorizeAgentTool("delete_calendar_event", "Confirmar creación").allowed, false);
+  assert.equal(authorizeAgentTool("delete_task", "Sí, créalos").allowed, false);
 });
 
 test("confirmation phrases are narrow and accent insensitive", () => {

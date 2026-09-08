@@ -1,4 +1,4 @@
-# Paridad de canales de ZYRON · auditoría v0.20
+# Paridad de canales de ZYRON · auditoría v0.21
 
 | Capacidad | Web | iOS companion | Telegram | Fuente común |
 |---|---|---|---|---|
@@ -27,4 +27,5 @@ Telegram ya funciona como adaptador del núcleo compartido para capacidades de s
 - Órdenes `/tareas`, `/tarea`, `/completar`, `/plan`, `/briefing`, `/actividad` y `/diagnostico` resueltas por el núcleo determinista, sin modelo de razonamiento.
 - Objetivos compartidos: listar, crear y vincular tareas desde cualquier canal; las escrituras exigen una petición explícita del propietario.
 - Briefing tolerante a fallos parciales: si Calendar o Gmail no responden, las fuentes disponibles siguen apareciendo.
+- Calendar reconoce la frase de confirmación que muestra al propietario y crea varios eventos mediante un lote reversible para evitar resultados parciales.
 - Mensaje de sistema que prohíbe fingir acciones nativas desde Telegram.
