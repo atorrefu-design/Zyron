@@ -2,6 +2,7 @@ export type ZyronAgentToolName =
   | "list_tasks"
   | "create_task"
   | "complete_task"
+  | "delete_task"
   | "build_daily_plan"
   | "search_memory"
   | "remember_fact"
@@ -15,7 +16,8 @@ export type ZyronAgentToolName =
   | "search_drive"
   | "read_drive_file"
   | "create_drive_folder"
-  | "create_drive_document";
+  | "create_drive_document"
+  | "search_current_web";
 
 export type ZyronAgentToolPolicy = {
   risk: "low" | "medium" | "high";
@@ -34,6 +36,12 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   list_tasks: { risk: "low", effect: "read", requiresExplicitRequest: false },
   create_task: { risk: "low", effect: "reversible_write", requiresExplicitRequest: false },
   complete_task: { risk: "low", effect: "reversible_write", requiresExplicitRequest: false },
+  delete_task: {
+    risk: "high",
+    effect: "reversible_write",
+    requiresExplicitRequest: true,
+    requiresConfirmation: true,
+  },
   build_daily_plan: { risk: "low", effect: "read", requiresExplicitRequest: false },
   search_memory: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   remember_fact: { risk: "medium", effect: "persistent_write", requiresExplicitRequest: true },
@@ -58,6 +66,7 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   read_drive_file: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   create_drive_folder: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true, requiresConfirmation: true },
   create_drive_document: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true, requiresConfirmation: true },
+  search_current_web: { risk: "low", effect: "read", requiresExplicitRequest: false },
 };
 
 function explicitlyRequestsMemory(message: string) {

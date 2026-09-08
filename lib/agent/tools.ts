@@ -1,6 +1,6 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { buildDailyPlan, formatDailyPlan } from "../tools/planner";
-import { createTask, listTasks, recordAction, setTaskCompleted } from "../db";
+import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../db";
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "../google/calendar";
 import { searchPlacesText } from "../google/places";
 import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from "../google/routes";
@@ -12,6 +12,7 @@ import { normalizeDriveContent, normalizeDriveName, normalizeDriveSearch, validD
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 import { classifyAgentToolFailure } from "./tool-errors";
+import { searchCurrentInformation } from "../current-search";
 
 export type ZyronAgentToolResult = {
   ok: boolean;
@@ -55,6 +56,20 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "Texto para localizar la tarea." } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_task",
+      description: "Elimina una única tarea existente solo después de mostrar cuál es y recibir confirmación expresa en un mensaje posterior.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "Texto inequívoco para localizar la tarea." } },
         required: ["query"],
         additionalProperties: false,
       },
@@ -294,6 +309,20 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
           format: { type: "string", enum: ["google_doc", "text"], description: "Formato final solicitado." },
         },
         required: ["name", "content", "parent_folder_id", "format"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_current_web",
+      description: "Consulta información vigente en la web cuando la pregunta depende de datos actuales, noticias, resultados, horarios o cambios recientes.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "Consulta actual concreta que se debe verificar." } },
+        required: ["query"],
         additionalProperties: false,
       },
     },
@@ -670,6 +699,25 @@ export async function executeAgentTool(input: {
       return { ok: true, summary: `Tarea completada: ${matches[0].title}.`, data: task };
     }
 
+    if (name === "delete_task") {
+      const query = textArgument(args, "query", 240);
+      if (!query) return { ok: false, summary: "Falta identificar la tarea." };
+      const needle = normalized(query);
+      const matches = (await listTasks()).filter((task) => !task.completed)
+        .filter((task) => normalized(task.title).includes(needle) || needle.includes(normalized(task.title)));
+      if (matches.length !== 1) {
+        return {
+          ok: false,
+          summary: matches.length ? "Hay varias tareas compatibles; Aarón debe elegir una." : "No se ha encontrado una tarea compatible.",
+          data: matches.slice(0, 6).map((task) => ({ id: task.id, title: task.title })),
+        };
+      }
+      const removed = await deleteTask(matches[0].id);
+      if (!removed) return { ok: false, summary: "La tarea ya no existe o no se ha podido eliminar." };
+      await audit("task_deleted", `Eliminó la tarea “${matches[0].title}” tras confirmación.`, { taskId: matches[0].id });
+      return { ok: true, summary: `Tarea eliminada: ${matches[0].title}.`, data: { id: matches[0].id, title: matches[0].title } };
+    }
+
     if (name === "build_daily_plan") {
       const limit = Math.max(1, Math.min(Number(args.limit) || 6, 12));
       const plan = await buildDailyPlan(limit);
@@ -705,6 +753,13 @@ export async function executeAgentTool(input: {
     if (name === "read_drive_file") return await readAgentDriveFile(args);
     if (name === "create_drive_folder") return await createAgentDriveFolder(args);
     if (name === "create_drive_document") return await createAgentDriveDocument(args);
+    if (name === "search_current_web") {
+      const query = textArgument(args, "query", 1_000);
+      if (!query) return { ok: false, summary: "Falta una consulta actual concreta." };
+      const result = await searchCurrentInformation(query);
+      await audit("current_information_searched", "Consultó información vigente en la web.", { model: result.model });
+      return { ok: true, summary: "Información actual verificada en la web.", data: { reply: result.reply } };
+    }
     return { ok: false, summary: "Herramienta no implementada." };
   } catch (error) {
     console.error("ZYRON_AGENT_TOOL_ERROR", name, error);

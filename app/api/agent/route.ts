@@ -17,7 +17,7 @@ function validMessages(value: unknown): ZyronAIMessage[] {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { messages?: unknown; text?: unknown };
+    const body = (await request.json()) as { messages?: unknown; text?: unknown; channel?: unknown };
     const messages = validMessages(body.messages);
     if (!messages.length && typeof body.text === "string" && body.text.trim()) {
       messages.push({ role: "user", content: body.text.trim().slice(0, 20_000) });
@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
     }
 
-    const result = await runZyronAgent({ messages });
+    const channel = body.channel === "ios" || body.channel === "web" ? body.channel : "api";
+    const result = await runZyronAgent({ messages, channel });
     return NextResponse.json({
       reply: result.reply,
       provider: result.provider,
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
       tool: result.trace.length ? result.trace[result.trace.length - 1].tool : result.memoriesUsed ? "memory" : "conversation",
       memoriesUsed: result.memoriesUsed,
       agent: {
-        version: "0.7",
+        version: "0.18",
         skills: result.skills,
         steps: result.trace.length,
         toolsUsed: result.trace.map((item) => item.tool),

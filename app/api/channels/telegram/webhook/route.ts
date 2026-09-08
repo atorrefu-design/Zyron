@@ -48,6 +48,7 @@ import {
   searchMemoryBlocks,
   recordManualMemoryFact,
 } from "../../../../../lib/memory.ts";
+import { renderTelegramCapabilities } from "../../../../../lib/channels/parity.ts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -234,10 +235,19 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "ZYRON está conectado. Escríbeme, envíame una nota de voz o comparte tu ubicación en tiempo real. Memoria directa: /guardar_memoria hecho, /memoria tema, /memoria_toda 1 y /memoria_estado. Otros comandos: /status, /location, /forget_location y /reset.",
+        reply: "ZYRON está conectado. Telegram es una interfaz del mismo núcleo, no otro asistente. Escríbeme, envíame una nota de voz o comparte tu ubicación en tiempo real. Usa /capacidades para ver el alcance real. Memoria directa: /guardar_memoria hecho, /memoria tema, /memoria_toda 1 y /memoria_estado. Otros comandos: /status, /location, /forget_location y /reset.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
+    }
+    if (command?.name === "capacidades" || command?.name === "capabilities") {
+      await deliverReply({
+        chatId,
+        updateId,
+        reply: renderTelegramCapabilities(),
+        replyToMessageId: message.message_id,
+      });
+      return json({ ok: true, capabilityStatus: true });
     }
     if (command?.name === "status") {
       const currentLocation = await getCurrentChannelLocation(CHANNEL, chatId);
@@ -473,7 +483,7 @@ export async function POST(request: Request) {
     let toolsUsed: string[] = [];
     try {
       const currentLocation = await getCurrentChannelLocation(CHANNEL, chatId);
-      const result = await runZyronAgent({ messages: history, currentLocation });
+      const result = await runZyronAgent({ messages: history, currentLocation, channel: "telegram" });
       reply = result.reply;
       provider = result.provider;
       toolsUsed = result.trace.map((item) => item.tool);

@@ -1,4 +1,4 @@
-# Canal privado de Telegram · ZYRON v0.9
+# Canal privado de Telegram · ZYRON v0.18
 
 ## Objetivo
 
@@ -43,6 +43,7 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 
 - `/start` o `/help`: ayuda del canal.
 - `/status`: confirma que el chat está conectado.
+- `/capacidades`: muestra qué ejecuta Telegram directamente, qué resuelve el núcleo común y qué requiere el companion del iPhone.
 - `/reset`: elimina el historial temporal de Telegram. No modifica la memoria permanente.
 - `/location`: comprueba si ZYRON dispone de una ubicación vigente.
 - `/forget_location`: elimina inmediatamente la ubicación temporal guardada por ZYRON.
@@ -81,10 +82,10 @@ Las órdenes «Recuerda que…» y «Guarda en tu memoria que…» se escriben d
 - El historial temporal se elimina automáticamente tras 30 días.
 - La ubicación se guarda separada del historial y se elimina al caducar; las coordenadas no se incluyen en auditorías ni logs.
 - Las respuestas pendientes se conservan para reintentar el envío sin volver a ejecutar las herramientas.
-- Telegram no incorpora herramientas nuevas: borrados, mensajería a terceros y ejecución arbitraria continúan bloqueados.
+- Telegram no crea capacidades paralelas: utiliza el catálogo del núcleo común. El borrado de una tarea o evento requiere confirmación posterior e inequívoca; la mensajería a terceros y la ejecución arbitraria continúan bloqueadas.
 
 ## Alcance de esta versión
 
-ZYRON v0.9 recibe texto y notas de voz del propietario. Las respuestas continúan siendo texto protegido; la voz saliente se evaluará por separado para no aumentar el coste ni el ruido de uso sin una decisión explícita.
+ZYRON v0.18 recibe texto y notas de voz del propietario y dispone desde Telegram de memoria canónica, tareas, calendario, Gmail, Drive, mapas e información vigente. Las acciones que solo puede iniciar iOS —abrir aplicaciones, llamadas, SMS/WhatsApp, grabación y notificaciones nativas— requieren el companion y nunca se anuncian falsamente como ejecutadas desde Telegram.
 
 Referencias oficiales: [Telegram Bot API](https://core.telegram.org/bots/api) y [OpenAI Speech to Text](https://developers.openai.com/api/docs/guides/speech-to-text).
