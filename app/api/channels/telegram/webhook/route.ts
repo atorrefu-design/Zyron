@@ -49,6 +49,8 @@ import {
   recordManualMemoryFact,
 } from "../../../../../lib/memory.ts";
 import { renderTelegramCapabilities } from "../../../../../lib/channels/parity.ts";
+import { directCurrentInfoQuery } from "../../../../../lib/channels/current-info.ts";
+import { searchCurrentInformation } from "../../../../../lib/current-search.ts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -467,6 +469,37 @@ export async function POST(request: Request) {
         await audit("channel_memory_searched", "Buscó directamente en la memoria privada sin IA.", { matches: matches.length });
         return json({ ok: true, directMemory: true });
       }
+      const currentInfoQuery = directCurrentInfoQuery(cleanText);
+      if (currentInfoQuery) {
+        await appendChannelMessage({
+          channel: CHANNEL,
+          chatId,
+          role: "user",
+          content: cleanText,
+          externalMessageId: `telegram:${chatId}:${message.message_id}:user`,
+        });
+        void sendTelegramChatAction(chatId).catch(() => undefined);
+        let directReply: string;
+        try {
+          directReply = (await searchCurrentInformation(currentInfoQuery)).reply;
+        } catch (error) {
+          console.error("ZYRON_TELEGRAM_CURRENT_SEARCH_ERROR", error instanceof Error ? error.message : "unknown");
+          directReply = "No he podido completar la consulta web ahora mismo. El mensaje sí se ha recibido y no he ejecutado ninguna acción ni reintento automático.";
+        }
+        await appendChannelMessage({
+          channel: CHANNEL,
+          chatId,
+          role: "assistant",
+          content: directReply,
+          externalMessageId: `telegram:update:${updateId}:assistant`,
+        });
+        await deliverReply({ chatId, updateId, reply: directReply, replyToMessageId: message.message_id });
+        await audit("channel_current_information_searched", "Procesó una consulta web directa desde Telegram.", {
+          ok: !directReply.startsWith("No he podido"),
+          aiCalls: 1,
+        });
+        return json({ ok: true, directCurrentInfo: true });
+      }
     }
     await appendChannelMessage({
       channel: CHANNEL,
@@ -488,8 +521,12 @@ export async function POST(request: Request) {
       provider = result.provider;
       toolsUsed = result.trace.map((item) => item.tool);
     } catch (error) {
-      if (!(error instanceof AIProviderUnavailableError)) throw error;
-      reply = error.message;
+      if (error instanceof AIProviderUnavailableError) {
+        reply = error.message;
+      } else {
+        console.error("ZYRON_TELEGRAM_AGENT_ERROR", error instanceof Error ? error.message : "unknown");
+        reply = "He recibido tu mensaje, pero el núcleo no ha podido terminar la respuesta. No se ha ejecutado ninguna acción ni reintento automático.";
+      }
     }
 
     await appendChannelMessage({
