@@ -8,6 +8,7 @@ export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToo
   const calendarWrite = tool === "create_calendar_event" || tool === "create_calendar_events" || tool === "delete_calendar_event";
   const mapsRead = tool === "search_places" || tool === "get_driving_route";
   const gmailRead = tool === "search_gmail" || tool === "read_gmail_message";
+  const gmailDraft = tool === "create_gmail_draft";
   const driveRead = tool === "search_drive" || tool === "read_drive_file";
   const driveWrite = tool === "create_drive_folder" || tool === "create_drive_document";
 
@@ -100,6 +101,25 @@ export function classifyAgentToolFailure(tool: string, error: unknown): ZyronToo
     return {
       code: "gmail_message_not_found",
       summary: "Ese correo ya no está disponible o el identificador ha caducado. Vuelve a buscarlo.",
+    };
+  }
+
+  if (gmailDraft && (
+    message.includes("google_not_connected")
+    || message.includes("gmail_compose_scope_missing")
+    || message.includes("google_token_refresh_400")
+    || message.includes("gmail_api_401")
+  )) {
+    return {
+      code: "gmail_compose_reconnect_required",
+      summary: "Gmail todavía no permite crear borradores. Reconecta Google desde el panel de ZYRON y acepta el permiso gmail.compose.",
+    };
+  }
+
+  if (gmailDraft && message.includes("gmail_api_403")) {
+    return {
+      code: "gmail_compose_permission_denied",
+      summary: "Google ha denegado la creación del borrador. Comprueba que Gmail API esté habilitada y vuelve a autorizar Google.",
     };
   }
 
