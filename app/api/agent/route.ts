@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AIProviderUnavailableError, type ZyronAIMessage } from "../../../lib/ai/router";
 import { runZyronAgent } from "../../../lib/agent/runtime";
+import { runDeterministicCommand } from "../../../lib/core/deterministic";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -24,6 +25,20 @@ export async function POST(request: Request) {
     }
     if (!messages.some((message) => message.role === "user")) {
       return NextResponse.json({ error: "Falta el mensaje del usuario" }, { status: 400 });
+    }
+
+    const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || "";
+    const direct = await runDeterministicCommand(lastUserMessage);
+    if (direct) {
+      return NextResponse.json({
+        reply: direct.reply,
+        action: direct.action,
+        tool: direct.tool,
+        provider: null,
+        model: null,
+        creditsUsed: false,
+        agent: { version: "0.20", skills: [], steps: 0, toolsUsed: [direct.tool] },
+      });
     }
 
     const channel = body.channel === "ios" || body.channel === "web" ? body.channel : "api";
