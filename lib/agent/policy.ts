@@ -4,6 +4,12 @@ export type ZyronAgentToolName =
   | "complete_task"
   | "delete_task"
   | "build_daily_plan"
+  | "get_operational_briefing"
+  | "list_goals"
+  | "create_goal"
+  | "assign_task_to_goal"
+  | "get_system_status"
+  | "list_recent_actions"
   | "search_memory"
   | "remember_fact"
   | "read_calendar"
@@ -43,6 +49,12 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
     requiresConfirmation: true,
   },
   build_daily_plan: { risk: "low", effect: "read", requiresExplicitRequest: false },
+  get_operational_briefing: { risk: "low", effect: "read", requiresExplicitRequest: false },
+  list_goals: { risk: "low", effect: "read", requiresExplicitRequest: false },
+  create_goal: { risk: "low", effect: "reversible_write", requiresExplicitRequest: true },
+  assign_task_to_goal: { risk: "low", effect: "reversible_write", requiresExplicitRequest: true },
+  get_system_status: { risk: "low", effect: "read", requiresExplicitRequest: false },
+  list_recent_actions: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   search_memory: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   remember_fact: { risk: "medium", effect: "persistent_write", requiresExplicitRequest: true },
   read_calendar: { risk: "medium", effect: "read", requiresExplicitRequest: false },
@@ -78,6 +90,20 @@ function explicitlyRequestsMemory(message: string) {
   return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:en\s+(?:(?:tu|la)\s+)?memoria)|guardalo(?:\s+en\s+(?:(?:tu|la)\s+)?memoria)?|a\s+partir\s+de\s+ahora)(?:\b|\s|[,.!])/i.test(clean);
 }
 
+function normalizeRequest(message: string) {
+  return message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function explicitlyRequestsGoalCreation(message: string) {
+  const clean = normalizeRequest(message);
+  return /\b(?:crea|crear|anade|anadir|nuevo|nueva|abre)\b[^.!?]{0,100}\b(?:objetivo|proyecto|meta)\b|\b(?:objetivo|proyecto|meta)\b[^.!?]{0,100}\b(?:crea|crear|anade|anadir|nuevo|nueva|abre)\b/.test(clean);
+}
+
+function explicitlyRequestsGoalAssignment(message: string) {
+  const clean = normalizeRequest(message);
+  return /\b(?:asigna|asignar|vincula|vincular|relaciona|relacionar|mete|incluir|incluye)\b[^.!?]{0,160}\b(?:tarea|objetivo|proyecto|meta)\b/.test(clean);
+}
+
 export function explicitlyConfirmsAgentAction(message: string) {
   const clean = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
   return /^(?:si[,.!]?\s+crea(?:[,.!]|\s|$)|(?:si[,.!]?\s+)?(?:confirmo|confirmado|confirma|adelante|hazlo|crealo|guardalo|crea(?:\s+el)?\s+evento|crea(?:\s+la)?\s+carpeta|crea(?:\s+el)?\s+documento|guarda(?:\s+el)?\s+documento|borralo|eliminalo|cancela(?:\s+el)?\s+evento)(?:[,.!]|\s|$))/.test(clean);
@@ -96,6 +122,22 @@ export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgen
     return {
       allowed: false,
       reason: "La memoria permanente solo se escribe cuando Aarón lo pide explícitamente.",
+      policy,
+    };
+  }
+
+  if (name === "create_goal" && !explicitlyRequestsGoalCreation(userMessage)) {
+    return {
+      allowed: false,
+      reason: "ZYRON solo crea un objetivo o proyecto cuando Aarón lo pide explícitamente.",
+      policy,
+    };
+  }
+
+  if (name === "assign_task_to_goal" && !explicitlyRequestsGoalAssignment(userMessage)) {
+    return {
+      allowed: false,
+      reason: "ZYRON solo vincula una tarea con un objetivo cuando Aarón lo pide explícitamente.",
       policy,
     };
   }
