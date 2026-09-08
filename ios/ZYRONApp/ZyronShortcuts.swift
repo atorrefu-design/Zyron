@@ -14,10 +14,12 @@ struct OpenZyronIntent: AppIntent {
 struct TalkToZyronIntent: AppIntent {
     static var title: LocalizedStringResource = "Hablar con ZYRON"
     static var description = IntentDescription(
-        "Activa ZYRON sin abrir la app."
+        "Abre el companion e inicia una conversación de voz con el núcleo privado de ZYRON."
     )
 
-    static var openAppWhenRun = false
+    // WebRTC and the microphone belong to the companion process. Opening the app is
+    // required for a reliable session; claiming background activation would be false.
+    static var openAppWhenRun = true
     static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -47,7 +49,8 @@ struct ZyronAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Hablar con \(.applicationName)",
                 "Abre \(.applicationName)",
-                "Quiero hablar con \(.applicationName)"
+                "Quiero hablar con \(.applicationName)",
+                "Activa \(.applicationName)"
             ],
             shortTitle: "Hablar con ZYRON",
             systemImageName: "waveform.circle.fill"
