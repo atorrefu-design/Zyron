@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AIProviderUnavailableError, type ZyronAIMessage } from "../../../lib/ai/router";
 import { runZyronAgent } from "../../../lib/agent/runtime";
 import { runDeterministicCommand } from "../../../lib/core/deterministic";
+import { webLocationObservation, type WebDeviceLocation } from "../../../lib/channels/location";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,7 +19,7 @@ function validMessages(value: unknown): ZyronAIMessage[] {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { messages?: unknown; text?: unknown; channel?: unknown };
+    const body = (await request.json()) as { messages?: unknown; text?: unknown; channel?: unknown; deviceLocation?: unknown };
     const messages = validMessages(body.messages);
     if (!messages.length && typeof body.text === "string" && body.text.trim()) {
       messages.push({ role: "user", content: body.text.trim().slice(0, 20_000) });
@@ -37,12 +38,15 @@ export async function POST(request: Request) {
         provider: null,
         model: null,
         creditsUsed: false,
-        agent: { version: "0.20", skills: [], steps: 0, toolsUsed: [direct.tool] },
+        agent: { version: "0.22", skills: [], steps: 0, toolsUsed: [direct.tool] },
       });
     }
 
     const channel = body.channel === "ios" || body.channel === "web" ? body.channel : "api";
-    const result = await runZyronAgent({ messages, channel });
+    const currentLocation = channel === "web" || channel === "ios"
+      ? webLocationObservation(body.deviceLocation as WebDeviceLocation | null)
+      : null;
+    const result = await runZyronAgent({ messages, channel, currentLocation });
     return NextResponse.json({
       reply: result.reply,
       provider: result.provider,
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
       tool: result.trace.length ? result.trace[result.trace.length - 1].tool : result.memoriesUsed ? "memory" : "conversation",
       memoriesUsed: result.memoriesUsed,
       agent: {
-        version: "0.18",
+        version: "0.22",
         skills: result.skills,
         steps: result.trace.length,
         toolsUsed: result.trace.map((item) => item.tool),
