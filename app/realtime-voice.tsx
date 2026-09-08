@@ -73,6 +73,12 @@ function isMobilityQuery(message: string) {
   return /\b(trafico|ruta|trayecto|cuanto tardo|cuanto tardare|hora de salir|hora tengo que salir|cuando tengo que salir|cuando debo salir|a que hora salgo|a que hora tengo que salir|llego a tiempo|llegare a tiempo|salida recomendada|trabajo|oficina)\b/.test(clean);
 }
 
+function needsLocationContext(message: string) {
+  const clean = normalize(message);
+  return isMobilityQuery(message)
+    || /\b(tiempo|clima|lluvia|temperatura|prevision|pronostico|cerca de mi|donde estoy)\b/.test(clean);
+}
+
 function currentDeviceLocation() {
   return new Promise<DeviceLocation | null>((resolve) => {
     if (!("geolocation" in navigator)) {
@@ -92,7 +98,7 @@ function currentDeviceLocation() {
   });
 }
 
-async function queryZyronCore(query: string) {
+async function queryZyronCore(query: string, recentTurns: RecentTurn[]) {
   if (isBriefingQuery(query)) {
     const response = await fetch("/api/briefing", { cache: "no-store" });
     const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string };
@@ -100,13 +106,19 @@ async function queryZyronCore(query: string) {
     return data.reply?.trim() || "No he podido obtener el briefing.";
   }
 
-  const deviceLocation = isMobilityQuery(query) ? await currentDeviceLocation() : null;
-  const response = await fetch("/api/chat", {
+  const deviceLocation = needsLocationContext(query) ? await currentDeviceLocation() : null;
+  const messages = recentTurns.slice(-10).map((turn) => ({ role: turn.role, content: turn.text }));
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user" || normalize(last.content) !== normalize(query)) {
+    messages.push({ role: "user", content: query });
+  }
+  const response = await fetch("/api/agent", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      messages: [{ role: "user", content: query }],
+      messages,
       deviceLocation,
+      channel: "web",
     }),
     cache: "no-store",
   });
@@ -467,7 +479,7 @@ export default function RealtimeVoice({
     try {
       const result = event.name === "buscar_lugares_reales"
         ? await searchRealPlaces(query)
-        : await queryZyronCore(query);
+        : await queryZyronCore(query, recentTurnsRef.current);
       sendEvent({
         type: "conversation.item.create",
         item: { type: "function_call_output", call_id: event.call_id, output: result },
@@ -705,18 +717,21 @@ export default function RealtimeVoice({
 
   return (
     <>
-      <button
-        type="button"
-        className={`orb ${active ? state : ""}`}
-        onClick={() => active ? stop() : void start()}
-        disabled={disabled || state === "connecting"}
-        aria-label={active ? "Terminar conversación por voz" : "Hablar con ZYRON"}
-      >
-        {state === "connecting" || state === "thinking" ? "…" : active ? "■" : "●"}
-      </button>
-      <div>
+      <div className={`arcCore state-${state}`}>
+        <i className="arcRing ringOne" /><i className="arcRing ringTwo" /><i className="arcRing ringThree" />
+        <button
+          type="button"
+          className={`orb ${active ? state : ""}`}
+          onClick={() => active ? stop() : void start()}
+          disabled={disabled || state === "connecting"}
+          aria-label={active ? "Terminar conversación por voz" : "Hablar con ZYRON"}
+        >
+          {state === "connecting" || state === "thinking" ? "…" : active ? "■" : "Z"}
+        </button>
+      </div>
+      <div className="voiceCopy">
         <strong>{label}</strong>
-        <div className="voiceHint">🎙️ Conversación en tiempo real: habla con normalidad, interrúmpeme si quieres y continúa sin volver a tocar el botón. Mantengo la pantalla despierta y, si iOS suspende audio o micrófono, intento recuperarlos al volver.</div>
+        <div className="voiceHint">Conversación continua, interrumpible y conectada al mismo núcleo, memoria y herramientas de ZYRON.</div>
       </div>
     </>
   );

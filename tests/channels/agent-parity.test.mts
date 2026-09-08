@@ -8,12 +8,18 @@ test("Telegram's shared agent exposes the priority server capabilities", () => {
   for (const name of [
     "list_tasks", "create_task", "complete_task", "delete_task", "search_memory",
     "remember_fact", "read_calendar", "create_calendar_events", "search_gmail", "search_drive",
-    "get_driving_route", "search_current_web",
+    "get_driving_route", "search_current_web", "get_weather_forecast", "create_gmail_draft",
     "get_operational_briefing", "list_goals", "create_goal", "assign_task_to_goal",
     "get_system_status", "list_recent_actions",
   ]) {
     assert.equal(names.has(name), true, `${name} should be exposed`);
   }
+});
+
+test("Gmail drafts require an explicit request and never require send authority", () => {
+  assert.equal(authorizeAgentTool("create_gmail_draft", "Este correo podría quedar bien").allowed, false);
+  assert.equal(authorizeAgentTool("create_gmail_draft", "Prepara un borrador de correo para ana@example.com").allowed, true);
+  assert.equal(listAgentToolPolicies().create_gmail_draft.requiresConfirmation, undefined);
 });
 
 test("task deletion is blocked until a later explicit confirmation", () => {

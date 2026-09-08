@@ -3,8 +3,9 @@ import {
   connectionHasScope,
   getGoogleAccessToken,
   getGoogleConnection,
+  GMAIL_COMPOSE_SCOPE,
   GMAIL_READONLY_SCOPE,
-} from "./oauth";
+} from "./oauth.ts";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -116,9 +117,10 @@ export function compactSender(value: string | null) {
   return value.replace(/\s*<[^>]+>\s*$/, "").replace(/^"|"$/g, "").trim() || value;
 }
 
-async function gmailFetch<T>(path: string, accessToken: string): Promise<T> {
+async function gmailFetch<T>(path: string, accessToken: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${GMAIL_API}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    ...init,
+    headers: { Authorization: `Bearer ${accessToken}`, ...init?.headers },
     cache: "no-store",
   });
   if (!response.ok) {
@@ -126,6 +128,39 @@ async function gmailFetch<T>(path: string, accessToken: string): Promise<T> {
     throw new Error(`gmail_api_${response.status}${detail ? `:${detail.slice(0, 180)}` : ""}`);
   }
   return response.json() as Promise<T>;
+}
+
+export function buildGmailDraftRaw(input: { to: string; subject: string; body: string }) {
+  if (/[\r\n]/.test(input.to)) throw new Error("gmail_invalid_recipient");
+  const to = input.to.trim().slice(0, 320);
+  const subject = input.subject.replace(/[\r\n]/g, " ").trim().slice(0, 500);
+  const body = input.body.replace(/\r\n?/g, "\n").trim().slice(0, 50_000);
+  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(to)) throw new Error("gmail_invalid_recipient");
+  if (!subject || !body) throw new Error("gmail_draft_incomplete");
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
+  return [
+    `To: ${to}`,
+    `Subject: ${encodedSubject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    body,
+  ].join("\r\n");
+}
+
+export async function createGmailDraft(input: { to: string; subject: string; body: string }) {
+  const connection = await getGoogleConnection();
+  if (!connection) throw new Error("google_not_connected");
+  if (!connectionHasScope(connection.scope, GMAIL_COMPOSE_SCOPE)) throw new Error("gmail_compose_scope_missing");
+  const accessToken = await getGoogleAccessToken();
+  const raw = Buffer.from(buildGmailDraftRaw(input), "utf8").toString("base64url");
+  const draft = await gmailFetch<{ id: string; message?: { id?: string; threadId?: string } }>("/drafts", accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: { raw } }),
+  });
+  return { id: draft.id, messageId: draft.message?.id ?? null, threadId: draft.message?.threadId ?? null };
 }
 
 export async function assertGmailReady() {

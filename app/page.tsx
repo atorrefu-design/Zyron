@@ -41,7 +41,7 @@ const initialMessages: Message[] = [{
   content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedes hablar conmigo en tiempo real o escribirme.",
 }];
 const CHAT_TIMEOUT_MS = 35_000;
-const quickPrompts = ["Ponme al día", "¿Qué tengo hoy?", "¿A qué hora tengo que salir?", "¿Cuál es mi próximo evento?", "¿Qué tareas tengo pendientes?"];
+const quickPrompts = ["Ponme al día", "¿Qué tengo hoy?", "¿Qué tiempo hará?", "Prepara mi plan del día", "¿Qué correos requieren atención?"];
 const PENDING_KEY = "zyron-pending-calendar-command";
 const CHOICE_KEY = "zyron-pending-calendar-choice";
 const PROACTIVE_KEY = "zyron-proactive-shown";
@@ -114,6 +114,7 @@ export default function Home() {
   const [voiceState, setVoiceState] = useState<RealtimeVoiceState>("ready");
   const [pendingCalendar, setPendingCalendar] = useState<PendingCalendarCommand | null>(null);
   const [pendingChoice, setPendingChoice] = useState<PendingCalendarChoice | null>(null);
+  const [clock, setClock] = useState("");
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const coreState: CoreState = loading || voiceState === "connecting" || voiceState === "thinking"
@@ -129,6 +130,15 @@ export default function Home() {
     thinking: "Pensando",
     speaking: "Conversación activa · hablando",
   }[coreState];
+
+  useEffect(() => {
+    const updateClock = () => setClock(new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", weekday: "short", day: "2-digit", month: "short",
+    }).format(new Date()));
+    updateClock();
+    const timer = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     try {
@@ -254,7 +264,9 @@ export default function Home() {
       } else if (isCalendarManagementCommand(clean)) {
         reply = await runCalendarCommand(clean);
       } else {
-        const deviceLocation = isMobilityQuery(clean) ? await currentDeviceLocation() : null;
+        const deviceLocation = isMobilityQuery(clean) || /\b(tiempo|clima|lluvia|temperatura|prevision|pronostico)\b/.test(normalize(clean))
+          ? await currentDeviceLocation()
+          : null;
         const data = await executeZyronRequest(
           { messages: nextMessages, deviceLocation },
           { signal: controller.signal },
@@ -343,10 +355,15 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="panel">
-        <div className="eyebrow">Sistema privado · Aarón</div>
-        <h1>Hablar</h1>
-        <p className="subtitle">Conversación de voz en tiempo real, memoria, tareas, alertas, Google Calendar y movilidad con tráfico.</p>
+      <section className="panel commandPanel">
+        <div className="commandHeader">
+          <div><div className="eyebrow">JARVIS MODE · SISTEMA PRIVADO</div><h1>Centro de mando</h1></div>
+          <div className="systemClock"><span>EUROPE / MADRID</span><strong>{clock || "--:--"}</strong></div>
+        </div>
+        <p className="subtitle">Una sola identidad en web, app y Telegram. Conversación natural con memoria, agenda, correo, Drive, movilidad, tiempo y acciones verificables.</p>
+        <div className="systemsRail" aria-label="Sistemas conectados">
+          <span><i /> Memoria común</span><span><i /> Google Workspace</span><span><i /> Tiempo real</span><span><i /> Voz continua</span>
+        </div>
         <div className="voiceBar">
           <RealtimeVoice
             disabled={loading}
@@ -356,12 +373,19 @@ export default function Home() {
             onError={(message) => setMessages((current) => [...current, { role: "assistant", content: `Voz: ${message}` }])}
           />
         </div>
+        <div className="capabilityDeck">
+          <a href="/calendar"><span>AGENDA</span><strong>Eventos y planificación</strong></a>
+          <a href="/briefing"><span>INTEL</span><strong>Briefing contextual</strong></a>
+          <a href="/maps"><span>MOVILIDAD</span><strong>Rutas y tráfico</strong></a>
+          <a href="/dashboard"><span>SISTEMAS</span><strong>Estado y herramientas</strong></a>
+        </div>
         <div className="headerActions" aria-label="Consultas rápidas">
           {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt)}>{prompt}</button>)}
         </div>
         <div className="chat" aria-live="polite">
           {messages.map((message, index) => (
             <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>
+              <div className="messageIdentity">{message.role === "assistant" ? "ZYRON" : "AARÓN"}</div>
               <div>{message.content}</div>
               {message.engine && <small className="engineBadge">Motor · {message.engine}</small>}
             </div>
@@ -373,7 +397,7 @@ export default function Home() {
           <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Ponme al día" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
-        <div className="note">Si inicias voz, el micrófono permanece activo durante esa conversación para poder encadenar turnos e interrumpir a ZYRON. Si escribes, la respuesta se mantiene en texto.</div>
+        <div className="note">El micrófono solo permanece activo mientras la conversación de voz está iniciada. Las escrituras sensibles conservan sus confirmaciones de seguridad.</div>
       </section>
     </main>
   );

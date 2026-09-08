@@ -10,6 +10,7 @@ const patterns: Array<{ tool: ZyronToolName; pattern: RegExp }> = [
   { tool: "gmail", pattern: /\b(gmail|correo|email|e-mail|bandeja de entrada|mensaje recibido)\b/i },
   { tool: "drive", pattern: /\b(google drive|drive|documento|archivo|carpeta)\b/i },
   { tool: "maps", pattern: /\b(maps|ruta|tr[aá]fico|ubicaci[oó]n|cu[aá]nto tardo|hora de salida|c[oó]mo llego)\b/i },
+  { tool: "weather", pattern: /\b(tiempo|clima|lluvia|temperatura|previsi[oó]n|pron[oó]stico)\b/i },
   { tool: "notifications", pattern: /\b(notif[ií]came|av[ií]same|aviso|notificaci[oó]n|alerta)\b/i },
 ];
 
@@ -38,6 +39,7 @@ export function unavailableCapabilityReply(message: string) {
     drive: "Google Drive",
     proactive: "Proactividad",
     maps: "Mapas y rutas",
+    weather: "Tiempo y previsión",
     notifications: "Notificaciones",
   };
 

@@ -20,11 +20,13 @@ export type ZyronAgentToolName =
   | "get_driving_route"
   | "search_gmail"
   | "read_gmail_message"
+  | "create_gmail_draft"
   | "search_drive"
   | "read_drive_file"
   | "create_drive_folder"
   | "create_drive_document"
-  | "search_current_web";
+  | "search_current_web"
+  | "get_weather_forecast";
 
 export type ZyronAgentToolPolicy = {
   risk: "low" | "medium" | "high";
@@ -81,11 +83,13 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
   get_driving_route: { risk: "low", effect: "read", requiresExplicitRequest: false },
   search_gmail: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   read_gmail_message: { risk: "medium", effect: "read", requiresExplicitRequest: false },
+  create_gmail_draft: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true },
   search_drive: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   read_drive_file: { risk: "medium", effect: "read", requiresExplicitRequest: false },
   create_drive_folder: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true, requiresConfirmation: true },
   create_drive_document: { risk: "medium", effect: "reversible_write", requiresExplicitRequest: true, requiresConfirmation: true },
   search_current_web: { risk: "low", effect: "read", requiresExplicitRequest: false },
+  get_weather_forecast: { risk: "low", effect: "read", requiresExplicitRequest: false },
 };
 
 function explicitlyRequestsMemory(message: string) {
@@ -109,6 +113,11 @@ function explicitlyRequestsGoalCreation(message: string) {
 function explicitlyRequestsGoalAssignment(message: string) {
   const clean = normalizeRequest(message);
   return /\b(?:asigna|asignar|vincula|vincular|relaciona|relacionar|mete|incluir|incluye)\b[^.!?]{0,160}\b(?:tarea|objetivo|proyecto|meta)\b/.test(clean);
+}
+
+function explicitlyRequestsEmailDraft(message: string) {
+  const clean = normalizeRequest(message);
+  return /\b(?:crea|crear|prepara|preparar|redacta|redactar|escribe|escribir)\b[^.!?]{0,180}\b(?:borrador|correo|email|e-mail)\b|\b(?:borrador|correo|email|e-mail)\b[^.!?]{0,180}\b(?:crea|crear|prepara|preparar|redacta|redactar|escribe|escribir)\b/.test(clean);
 }
 
 export function explicitlyConfirmsAgentAction(message: string, tool?: ZyronAgentToolName) {
@@ -159,6 +168,14 @@ export function authorizeAgentTool(tool: string, userMessage: string): ZyronAgen
     return {
       allowed: false,
       reason: "ZYRON solo vincula una tarea con un objetivo cuando Aarón lo pide explícitamente.",
+      policy,
+    };
+  }
+
+  if (name === "create_gmail_draft" && !explicitlyRequestsEmailDraft(userMessage)) {
+    return {
+      allowed: false,
+      reason: "ZYRON solo crea un borrador de Gmail cuando Aarón lo pide explícitamente; nunca lo envía.",
       policy,
     };
   }

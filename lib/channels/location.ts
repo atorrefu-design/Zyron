@@ -29,6 +29,35 @@ export type CurrentChannelLocation = ChannelLocationObservation & {
   updatedAt: string;
 };
 
+export type WebDeviceLocation = {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  capturedAt?: string;
+};
+
+export function webLocationObservation(
+  input: WebDeviceLocation | null | undefined,
+  receivedAt = new Date(),
+): CurrentChannelLocation | null {
+  if (!input || !validSharedLocation(input.latitude, input.longitude)) return null;
+  const captured = input.capturedAt ? new Date(input.capturedAt) : receivedAt;
+  const observedAt = Number.isFinite(captured.getTime()) ? captured : receivedAt;
+  // Browser coordinates are deliberately short-lived and never persisted here.
+  if (Math.abs(receivedAt.getTime() - observedAt.getTime()) > 5 * 60 * 1_000) return null;
+  const accuracy = Number(input.accuracy);
+  return {
+    latitude: input.latitude,
+    longitude: input.longitude,
+    horizontalAccuracy: Number.isFinite(accuracy) && accuracy >= 0 ? accuracy : null,
+    live: false,
+    telegramMessageId: 0,
+    observedAt: observedAt.toISOString(),
+    expiresAt: new Date(receivedAt.getTime() + 5 * 60 * 1_000).toISOString(),
+    updatedAt: receivedAt.toISOString(),
+  };
+}
+
 function safeDate(milliseconds: number) {
   return new Date(Math.min(milliseconds, 8_640_000_000_000_000));
 }

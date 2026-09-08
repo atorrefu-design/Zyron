@@ -8,6 +8,7 @@ export type ZyronToolName =
   | "drive"
   | "proactive"
   | "maps"
+  | "weather"
   | "notifications";
 
 export type ZyronToolStatus = "available" | "needs_configuration" | "planned";
@@ -84,12 +85,12 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
     },
     gmail: {
       name: "gmail",
-      description: "Busca y consulta de forma privada mensajes del Gmail conectado. El envío aún no está habilitado.",
-      permissions: ["owner_session", "google_oauth", "gmail.readonly"],
-      canWrite: false,
+      description: "Busca y consulta mensajes privados y crea borradores en Gmail. Nunca envía correos.",
+      permissions: ["owner_session", "google_oauth", "gmail.readonly", "gmail.compose"],
+      canWrite: true,
       requiresConfirmation: false,
       status: googleReady ? "available" : "needs_configuration",
-      configurationHint: "Configurar Google OAuth y autorizar el scope gmail.readonly.",
+      configurationHint: "Configurar Google OAuth y autorizar gmail.readonly y gmail.compose.",
     },
     drive: {
       name: "drive",
@@ -117,6 +118,14 @@ export function getZyronTools(): Record<ZyronToolName, ZyronToolDefinition> {
       requiresConfirmation: false,
       status: mapsReady ? "available" : "needs_configuration",
       configurationHint: "Configurar GOOGLE_MAPS_API_KEY y habilitar Google Routes API.",
+    },
+    weather: {
+      name: "weather",
+      description: "Consulta el tiempo actual y la previsión de tres días desde una ubicación autorizada.",
+      permissions: ["owner_session", "device_location", "open_meteo"],
+      canWrite: false,
+      requiresConfirmation: false,
+      status: "available",
     },
     notifications: {
       name: "notifications",
