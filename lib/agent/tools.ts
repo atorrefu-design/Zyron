@@ -6,7 +6,7 @@ import { searchPlacesText } from "../google/places";
 import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from "../google/routes";
 import { buildNavigationLinks, validSharedLocation } from "../maps-links";
 import { normalizeGmailQuery, validGmailMessageId } from "../gmail-query";
-import { compactSender, listGmailMessages, readGmailMessage } from "../google/gmail";
+import { compactSender, createGmailDraft, listGmailMessages, readGmailMessage } from "../google/gmail";
 import { createDriveDocument, createDriveFolder, readDriveFile, searchDriveFiles } from "../google/drive";
 import { normalizeDriveContent, normalizeDriveName, normalizeDriveSearch, validDriveFileId } from "../drive-policy";
 import { buildMemoryContext, recordManualMemoryFact } from "../memory";
@@ -15,6 +15,7 @@ import { classifyAgentToolFailure } from "./tool-errors";
 import { searchCurrentInformation } from "../current-search";
 import { executeDeterministicCommand } from "../core/deterministic";
 import { getZyronHealth } from "../health";
+import { getWeatherForecast } from "../weather";
 
 export type ZyronAgentToolResult = {
   ok: boolean;
@@ -358,6 +359,24 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "create_gmail_draft",
+      description: "Crea un borrador en Gmail cuando Aarón lo pide expresamente. Nunca envía el correo y devuelve el identificador del borrador.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Dirección de email exacta del destinatario." },
+          subject: { type: "string", description: "Asunto del borrador." },
+          body: { type: "string", description: "Cuerpo completo del correo." },
+        },
+        required: ["to", "subject", "body"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "search_drive",
       description: "Busca archivos reales en el Google Drive conectado con acceso de solo lectura. Devuelve metadatos y enlaces, sin descargar contenido.",
       strict: true,
@@ -434,6 +453,23 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
         type: "object",
         properties: { query: { type: "string", description: "Consulta actual concreta que se debe verificar." } },
         required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_weather_forecast",
+      description: "Consulta el tiempo actual y la previsión real de tres días para unas coordenadas autorizadas.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          latitude: { type: "number", description: "Latitud de la ubicación autorizada o solicitada." },
+          longitude: { type: "number", description: "Longitud de la ubicación autorizada o solicitada." },
+        },
+        required: ["latitude", "longitude"],
         additionalProperties: false,
       },
     },
@@ -962,7 +998,7 @@ export async function executeAgentTool(input: {
     if (name === "remember_fact") {
       const fact = textArgument(args, "fact", 2_000).replace(/[.!?]+$/, "");
       if (!fact) return { ok: false, summary: "La memoria propuesta está vacía." };
-      const block = await recordManualMemoryFact(fact, { source: "zyron-agent-v0.20" });
+      const block = await recordManualMemoryFact(fact, { source: "zyron-agent-v0.22" });
       await audit("memory_saved", "Guardó una memoria solicitada explícitamente por el propietario.", { memoryBlockId: block.id });
       return { ok: true, summary: `Memoria guardada: ${fact}.`, data: { id: block.id } };
     }
@@ -975,10 +1011,27 @@ export async function executeAgentTool(input: {
     if (name === "get_driving_route") return await getAgentDrivingRoute(args);
     if (name === "search_gmail") return await searchAgentGmail(args);
     if (name === "read_gmail_message") return await readAgentGmailMessage(args);
+    if (name === "create_gmail_draft") {
+      const to = textArgument(args, "to", 320);
+      const subject = textArgument(args, "subject", 500);
+      const body = textArgument(args, "body", 50_000);
+      if (!to || !subject || !body) return { ok: false, summary: "Faltan destinatario, asunto o contenido del borrador." };
+      const draft = await createGmailDraft({ to, subject, body });
+      await audit("gmail_draft_created", "Creó un borrador de Gmail solicitado por el propietario.", { draftId: draft.id, recipient: to });
+      return { ok: true, summary: `Borrador creado en Gmail para ${to}. No se ha enviado.`, data: draft };
+    }
     if (name === "search_drive") return await searchAgentDrive(args);
     if (name === "read_drive_file") return await readAgentDriveFile(args);
     if (name === "create_drive_folder") return await createAgentDriveFolder(args);
     if (name === "create_drive_document") return await createAgentDriveDocument(args);
+    if (name === "get_weather_forecast") {
+      const latitude = Number(args.latitude);
+      const longitude = Number(args.longitude);
+      if (!validSharedLocation(latitude, longitude)) return { ok: false, summary: "Falta una ubicación válida para consultar el tiempo." };
+      const forecast = await getWeatherForecast(latitude, longitude);
+      await audit("weather_forecast_read", "Consultó la previsión meteorológica contextual.", { source: forecast.source });
+      return { ok: true, summary: "Previsión meteorológica actualizada.", data: forecast };
+    }
     if (name === "search_current_web") {
       const query = textArgument(args, "query", 1_000);
       if (!query) return { ok: false, summary: "Falta una consulta actual concreta." };
