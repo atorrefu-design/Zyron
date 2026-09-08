@@ -23,6 +23,31 @@ export type ZyronCapability = {
 
 export const zyronCapabilities: readonly ZyronCapability[] = [
   {
+    id: "weather.forecast",
+    label: "Tiempo y previsión",
+    domain: "context",
+    accessLevel: "web_adapter",
+    canRead: true,
+    canWrite: false,
+    requiresUserInteraction: false,
+    requiresConfirmation: false,
+    risk: "low",
+    status: "available",
+  },
+  {
+    id: "gmail.drafts",
+    label: "Borradores de Gmail",
+    domain: "communication",
+    accessLevel: "direct",
+    canRead: false,
+    canWrite: true,
+    requiresUserInteraction: false,
+    requiresConfirmation: false,
+    risk: "medium",
+    status: "available",
+    fallback: "Reautorizar Google con gmail.compose; ZYRON crea borradores pero nunca los envía.",
+  },
+  {
     id: "calendar.events",
     label: "Calendario",
     domain: "productivity",
