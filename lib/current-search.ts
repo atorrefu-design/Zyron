@@ -10,7 +10,7 @@ export async function searchCurrentInformation(query: string): Promise<CurrentSe
   if (!cleanQuery) throw new Error("current_search_query_required");
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY no está configurada");
-  const model = process.env.OPENAI_SEARCH_MODEL || process.env.OPENAI_MODEL || "gpt-5-mini";
+  const model = process.env.OPENAI_SEARCH_MODEL || "gpt-5-mini";
   const response = await new OpenAI({ apiKey }).responses.create({
     model,
     tools: [{ type: "web_search" }],
@@ -23,7 +23,7 @@ export async function searchCurrentInformation(query: string): Promise<CurrentSe
     ].join("\n"),
     input: cleanQuery,
     store: false,
-  });
+  }, { signal: AbortSignal.timeout(35_000) });
   const reply = response.output_text?.trim();
   if (!reply) throw new Error("current_search_empty_response");
   return { reply, model };
