@@ -1,4 +1,4 @@
-# Canal privado de Telegram · ZYRON v0.18
+# Canal privado de Telegram · ZYRON v0.19
 
 ## Objetivo
 
@@ -86,6 +86,8 @@ Las órdenes «Recuerda que…» y «Guarda en tu memoria que…» se escriben d
 
 ## Alcance de esta versión
 
-ZYRON v0.18 recibe texto y notas de voz del propietario y dispone desde Telegram de memoria canónica, tareas, calendario, Gmail, Drive, mapas e información vigente. Las acciones que solo puede iniciar iOS —abrir aplicaciones, llamadas, SMS/WhatsApp, grabación y notificaciones nativas— requieren el companion y nunca se anuncian falsamente como ejecutadas desde Telegram.
+ZYRON v0.19 recibe texto y notas de voz del propietario y dispone desde Telegram de memoria canónica, tareas, calendario, Gmail, Drive, mapas e información vigente. Las acciones que solo puede iniciar iOS —abrir aplicaciones, llamadas, SMS/WhatsApp, grabación y notificaciones nativas— requieren el companion y nunca se anuncian falsamente como ejecutadas desde Telegram.
+
+Las peticiones explícitas de consulta web se ejecutan mediante una única llamada con tiempo máximo. Si el proveedor falla o agota el tiempo, Telegram entrega siempre una respuesta de error y deja claro que no se ha programado ningún reintento. Un fallo del agente tampoco puede dejar el chat sin contestación.
 
 Referencias oficiales: [Telegram Bot API](https://core.telegram.org/bots/api) y [OpenAI Speech to Text](https://developers.openai.com/api/docs/guides/speech-to-text).
