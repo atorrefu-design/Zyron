@@ -14,6 +14,7 @@ import { toolSummary } from "../tools/registry";
 import { renderAgentSkills, selectAgentSkills } from "./skills";
 import { agentToolDefinitions, executeAgentTool } from "./tools";
 import { agentLocationContext, type CurrentChannelLocation } from "../channels/location.ts";
+import { getCurrentDeviceContext, renderDeviceContext } from "../device-context";
 
 const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
@@ -67,10 +68,11 @@ function systemInstructions(input: {
   skills: ReturnType<typeof selectAgentSkills>;
   memory: string;
   currentLocation?: CurrentChannelLocation | null;
+  deviceContext: string;
   channel: ZyronAgentChannel;
 }) {
   return [
-    "# Núcleo único ZYRON v0.22",
+    "# Núcleo único ZYRON v0.23",
     `Canal actual: ${input.channel}. El canal es solo una interfaz: conserva la misma identidad, memoria, herramientas y políticas de ZYRON.`,
     "Resuelve la petición completa con el mínimo número de pasos útiles.",
     "Usa herramientas para datos reales o acciones. No inventes resultados de herramientas.",
@@ -90,6 +92,7 @@ function systemInstructions(input: {
     `\n# Capacidades registradas\n${toolSummary()}`,
     `\n# Memoria privada recuperada\n${input.memory}`,
     `\n# Contexto temporal de ubicación\n${agentLocationContext(input.currentLocation || null)}`,
+    `\n# Contexto temporal del dispositivo\n${input.deviceContext}`,
   ].join("\n\n");
 }
 
@@ -103,15 +106,19 @@ export async function runZyronAgent(input: {
 
   const selection = resolveAISelection(lastUserMessage);
   const skills = selectAgentSkills(selection.prompt);
-  const memory = await buildMemoryContext(selection.prompt, 14_000).catch((error) => {
-    console.error("ZYRON_AGENT_MEMORY_ERROR", error);
-    return { context: "La memoria privada no está disponible temporalmente.", blocks: [] };
-  });
+  const [memory, deviceContext] = await Promise.all([
+    buildMemoryContext(selection.prompt, 14_000).catch((error) => {
+      console.error("ZYRON_AGENT_MEMORY_ERROR", error);
+      return { context: "La memoria privada no está disponible temporalmente.", blocks: [] };
+    }),
+    getCurrentDeviceContext().then(renderDeviceContext).catch(() => "El contexto Bluetooth no está disponible temporalmente."),
+  ]);
   const conversation: ChatCompletionMessageParam[] = [
     { role: "system", content: systemInstructions({
       skills,
       memory: memory.context,
       currentLocation: input.currentLocation,
+      deviceContext,
       channel: input.channel || "api",
     }) },
     ...recentMessages(input.messages, selection.prompt),
