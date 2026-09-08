@@ -55,6 +55,7 @@ export async function POST(request: Request) {
     const chatPayload = {
       messages: messages.length ? messages : [{ role: "user" as const, content: text }],
       deviceLocation: body.deviceLocation ?? null,
+      channel: "web",
     };
 
     const conditional = buildNativeConditional(text);

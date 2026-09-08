@@ -3,6 +3,7 @@ import { AIProviderUnavailableError, type ZyronAIMessage } from "../../../lib/ai
 import { runZyronAgent } from "../../../lib/agent/runtime";
 import { runDeterministicCommand } from "../../../lib/core/deterministic";
 import { webLocationObservation, type WebDeviceLocation } from "../../../lib/channels/location";
+import { formatWeatherReply, getWeatherForecast, weatherRequestHorizon } from "../../../lib/weather";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,6 +30,35 @@ export async function POST(request: Request) {
     }
 
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user")?.content || "";
+    const channel = body.channel === "ios" || body.channel === "web" ? body.channel : "api";
+    const currentLocation = channel === "web" || channel === "ios"
+      ? webLocationObservation(body.deviceLocation as WebDeviceLocation | null)
+      : null;
+    const weatherHorizon = weatherRequestHorizon(lastUserMessage);
+    if (weatherHorizon) {
+      const latitude = currentLocation?.latitude ?? 41.3874;
+      const longitude = currentLocation?.longitude ?? 2.1686;
+      const locationLabel = currentLocation ? "tu ubicación actual" : "Barcelona (ubicación de referencia)";
+      try {
+        const forecast = await getWeatherForecast(latitude, longitude);
+        return NextResponse.json({
+          reply: formatWeatherReply(forecast, weatherHorizon, locationLabel),
+          tool: "weather",
+          provider: null,
+          model: null,
+          creditsUsed: false,
+          agent: { version: "0.22.1", skills: [], steps: 1, toolsUsed: ["get_weather_forecast"] },
+        });
+      } catch (error) {
+        console.error("ZYRON_WEATHER_ROUTE_ERROR", error);
+        return NextResponse.json({
+          reply: "No he podido consultar ahora mismo el servicio meteorológico. No he usado una estimación ni he inventado la previsión.",
+          error: "weather_temporarily_unavailable",
+          tool: "weather",
+          creditsUsed: false,
+        }, { status: 502 });
+      }
+    }
     const direct = await runDeterministicCommand(lastUserMessage);
     if (direct) {
       return NextResponse.json({
@@ -38,14 +68,10 @@ export async function POST(request: Request) {
         provider: null,
         model: null,
         creditsUsed: false,
-        agent: { version: "0.22", skills: [], steps: 0, toolsUsed: [direct.tool] },
+        agent: { version: "0.22.1", skills: [], steps: 0, toolsUsed: [direct.tool] },
       });
     }
 
-    const channel = body.channel === "ios" || body.channel === "web" ? body.channel : "api";
-    const currentLocation = channel === "web" || channel === "ios"
-      ? webLocationObservation(body.deviceLocation as WebDeviceLocation | null)
-      : null;
     const result = await runZyronAgent({ messages, channel, currentLocation });
     return NextResponse.json({
       reply: result.reply,
@@ -55,7 +81,7 @@ export async function POST(request: Request) {
       tool: result.trace.length ? result.trace[result.trace.length - 1].tool : result.memoriesUsed ? "memory" : "conversation",
       memoriesUsed: result.memoriesUsed,
       agent: {
-        version: "0.22",
+        version: "0.22.1",
         skills: result.skills,
         steps: result.trace.length,
         toolsUsed: result.trace.map((item) => item.tool),
