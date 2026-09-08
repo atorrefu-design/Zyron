@@ -1,4 +1,4 @@
-# Canal privado de Telegram · ZYRON v0.19
+# Canal privado de Telegram · ZYRON v0.20
 
 ## Objetivo
 
@@ -44,6 +44,13 @@ El código de vinculación dura 15 minutos, se guarda únicamente como hash y so
 - `/start` o `/help`: ayuda del canal.
 - `/status`: confirma que el chat está conectado.
 - `/capacidades`: muestra qué ejecuta Telegram directamente, qué resuelve el núcleo común y qué requiere el companion del iPhone.
+- `/tareas`: lista las tareas pendientes sin IA.
+- `/tarea texto`: crea una tarea sin IA.
+- `/completar texto`: completa una tarea inequívoca sin IA.
+- `/plan`: ordena las tareas del día sin IA.
+- `/briefing`: combina agenda, correos sin leer y tareas sin IA.
+- `/actividad`: muestra las últimas acciones realmente registradas por ZYRON.
+- `/diagnostico`: comprueba núcleo, memoria, base de datos, modelos, mapas y seguridad.
 - `/reset`: elimina el historial temporal de Telegram. No modifica la memoria permanente.
 - `/location`: comprueba si ZYRON dispone de una ubicación vigente.
 - `/forget_location`: elimina inmediatamente la ubicación temporal guardada por ZYRON.
@@ -86,7 +93,7 @@ Las órdenes «Recuerda que…» y «Guarda en tu memoria que…» se escriben d
 
 ## Alcance de esta versión
 
-ZYRON v0.19 recibe texto y notas de voz del propietario y dispone desde Telegram de memoria canónica, tareas, calendario, Gmail, Drive, mapas e información vigente. Las acciones que solo puede iniciar iOS —abrir aplicaciones, llamadas, SMS/WhatsApp, grabación y notificaciones nativas— requieren el companion y nunca se anuncian falsamente como ejecutadas desde Telegram.
+ZYRON v0.20 recibe texto y notas de voz del propietario y dispone desde Telegram de memoria canónica, tareas, calendario, Gmail, Drive, mapas e información vigente. Las órdenes claras de tareas, planificación, briefing, actividad y diagnóstico utilizan la misma capa determinista que el companion y no invocan un modelo para interpretar texto. Una nota de voz sí requiere transcripción. Las acciones que solo puede iniciar iOS —abrir aplicaciones, llamadas, SMS/WhatsApp, grabación y notificaciones nativas— requieren el companion y nunca se anuncian falsamente como ejecutadas desde Telegram.
 
 Las peticiones explícitas de consulta web se ejecutan mediante una única llamada con tiempo máximo. Si el proveedor falla o agota el tiempo, Telegram entrega siempre una respuesta de error y deja claro que no se ha programado ningún reintento. Un fallo del agente tampoco puede dejar el chat sin contestación.
 
