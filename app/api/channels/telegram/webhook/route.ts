@@ -51,6 +51,7 @@ import {
 import { renderTelegramCapabilities } from "../../../../../lib/channels/parity.ts";
 import { directCurrentInfoQuery } from "../../../../../lib/channels/current-info.ts";
 import { searchCurrentInformation } from "../../../../../lib/current-search.ts";
+import { runDeterministicCommand } from "../../../../../lib/core/deterministic.ts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "ZYRON está conectado. Telegram es una interfaz del mismo núcleo, no otro asistente. Escríbeme, envíame una nota de voz o comparte tu ubicación en tiempo real. Usa /capacidades para ver el alcance real. Memoria directa: /guardar_memoria hecho, /memoria tema, /memoria_toda 1 y /memoria_estado. Otros comandos: /status, /location, /forget_location y /reset.",
+        reply: "ZYRON está conectado. Telegram es una interfaz del mismo núcleo, no otro asistente. Órdenes directas: /tareas, /tarea texto, /completar texto, /plan, /briefing, /actividad y /diagnostico. Memoria directa: /guardar_memoria hecho, /memoria tema, /memoria_toda 1 y /memoria_estado. Estado y privacidad: /capacidades, /status, /location, /forget_location y /reset.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
@@ -500,6 +501,34 @@ export async function POST(request: Request) {
         });
         return json({ ok: true, directCurrentInfo: true });
       }
+    }
+    const directCommand = await runDeterministicCommand(cleanText);
+    if (directCommand) {
+      const directReply = inputMode === "voice"
+        ? directCommand.reply.replaceAll("sin modelo de IA", "sin modelo de razonamiento; la nota de voz sí ha requerido transcripción")
+        : directCommand.reply;
+      await appendChannelMessage({
+        channel: CHANNEL,
+        chatId,
+        role: "user",
+        content: inputMode === "voice" ? `[Nota de voz transcrita] ${cleanText}` : cleanText,
+        externalMessageId: `telegram:${chatId}:${message.message_id}:user`,
+      });
+      await appendChannelMessage({
+        channel: CHANNEL,
+        chatId,
+        role: "assistant",
+        content: directReply,
+        externalMessageId: `telegram:update:${updateId}:assistant`,
+      });
+      await deliverReply({ chatId, updateId, reply: directReply, replyToMessageId: message.message_id });
+      await audit("channel_direct_command", "Ejecutó una orden determinista desde Telegram.", {
+        action: directCommand.action,
+        tool: directCommand.tool,
+        creditsUsed: inputMode === "text" ? false : "transcription_only",
+        inputMode,
+      });
+      return json({ ok: true, directCommand: directCommand.action, creditsUsed: inputMode === "text" ? false : "transcription_only" });
     }
     await appendChannelMessage({
       channel: CHANNEL,

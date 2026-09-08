@@ -1,6 +1,6 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { buildDailyPlan, formatDailyPlan } from "../tools/planner";
-import { createTask, deleteTask, listTasks, recordAction, setTaskCompleted } from "../db";
+import { assignTaskToGoal, createGoal, createTask, deleteTask, listActions, listGoals, listTasks, recordAction, setTaskCompleted } from "../db";
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "../google/calendar";
 import { searchPlacesText } from "../google/places";
 import { computeDrivingRoute, planDepartureForArrival, type RoutePoint } from "../google/routes";
@@ -13,6 +13,8 @@ import { buildMemoryContext, recordManualMemoryFact } from "../memory";
 import { authorizeAgentTool, type ZyronAgentToolName } from "./policy";
 import { classifyAgentToolFailure } from "./tool-errors";
 import { searchCurrentInformation } from "../current-search";
+import { executeDeterministicCommand } from "../core/deterministic";
+import { getZyronHealth } from "../health";
 
 export type ZyronAgentToolResult = {
   ok: boolean;
@@ -84,6 +86,82 @@ export const agentToolDefinitions: ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: { limit: { type: "integer", minimum: 1, maximum: 12 } },
+        required: ["limit"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_operational_briefing",
+      description: "Prepara bajo demanda un briefing verificable con agenda próxima, correos sin leer y tareas, sin usar otro modelo de IA.",
+      strict: true,
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_goals",
+      description: "Lista los objetivos y proyectos reales de Aarón con su progreso de tareas.",
+      strict: true,
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_goal",
+      description: "Crea un objetivo o proyecto persistente cuando Aarón lo pide explícitamente. No elimina ni reemplaza objetivos existentes.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Nombre breve del objetivo o proyecto." },
+          description: { type: ["string", "null"], description: "Descripción opcional y concreta." },
+          icon: { type: ["string", "null"], description: "Un único emoji opcional." },
+        },
+        required: ["name", "description", "icon"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "assign_task_to_goal",
+      description: "Vincula una tarea existente con un objetivo existente cuando ambas referencias son inequívocas.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          task_query: { type: "string", description: "Nombre o referencia de la tarea." },
+          goal_query: { type: "string", description: "Nombre o referencia del objetivo." },
+        },
+        required: ["task_query", "goal_query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_system_status",
+      description: "Comprueba el estado real del núcleo, memoria, base de datos, proveedores y configuración esencial.",
+      strict: true,
+      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_recent_actions",
+      description: "Muestra acciones recientes realmente registradas por ZYRON para responder qué ha hecho o verificar una operación.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: { limit: { type: "integer", minimum: 1, maximum: 20 } },
         required: ["limit"],
         additionalProperties: false,
       },
@@ -724,6 +802,81 @@ export async function executeAgentTool(input: {
       return { ok: true, summary: formatDailyPlan(plan), data: plan };
     }
 
+    if (name === "get_operational_briefing") {
+      const briefing = await executeDeterministicCommand({ type: "briefing" });
+      return { ok: true, summary: briefing.reply, data: { creditsUsed: false } };
+    }
+
+    if (name === "list_goals") {
+      const goals = await listGoals();
+      await audit("goals_listed", `Consultó ${goals.length} objetivos.`, { count: goals.length });
+      return { ok: true, summary: `${goals.length} objetivos encontrados.`, data: goals };
+    }
+
+    if (name === "create_goal") {
+      const goalName = textArgument(args, "name", 100).replace(/[.!?]+$/, "");
+      const description = textArgument(args, "description", 1_000) || null;
+      const iconCandidate = textArgument(args, "icon", 16);
+      if (!goalName) return { ok: false, summary: "Falta un nombre válido para el objetivo." };
+      const slug = normalized(goalName).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+      if (!slug) return { ok: false, summary: "No se ha podido generar un identificador válido para el objetivo." };
+      const goal = await createGoal(goalName, slug, iconCandidate || "🎯", description);
+      await audit("goal_created", `Creó el objetivo “${goal.name}”.`, { goalId: goal.id });
+      return { ok: true, summary: `Objetivo creado: ${goal.name}.`, data: goal };
+    }
+
+    if (name === "assign_task_to_goal") {
+      const taskQuery = textArgument(args, "task_query", 240);
+      const goalQuery = textArgument(args, "goal_query", 100);
+      if (!taskQuery || !goalQuery) return { ok: false, summary: "Falta identificar la tarea o el objetivo." };
+      const taskNeedle = normalized(taskQuery);
+      const goalNeedle = normalized(goalQuery);
+      const taskMatches = (await listTasks()).filter((task) => !task.completed)
+        .filter((task) => normalized(task.title).includes(taskNeedle) || taskNeedle.includes(normalized(task.title)));
+      const goalMatches = (await listGoals()).filter((goal) => goal.active)
+        .filter((goal) => normalized(goal.name).includes(goalNeedle) || goalNeedle.includes(normalized(goal.name)) || goal.slug === goalNeedle);
+      if (taskMatches.length !== 1 || goalMatches.length !== 1) {
+        return {
+          ok: false,
+          summary: taskMatches.length !== 1 ? "La tarea no es inequívoca." : "El objetivo no es inequívoco.",
+          data: {
+            tasks: taskMatches.slice(0, 6).map((task) => ({ id: task.id, title: task.title })),
+            goals: goalMatches.slice(0, 6).map((goal) => ({ id: goal.id, name: goal.name })),
+          },
+        };
+      }
+      const task = await assignTaskToGoal(taskMatches[0].id, goalMatches[0].id);
+      await audit("task_goal_assigned", `Vinculó “${taskMatches[0].title}” con “${goalMatches[0].name}”.`, {
+        taskId: taskMatches[0].id,
+        goalId: goalMatches[0].id,
+      });
+      return { ok: true, summary: `Tarea vinculada al objetivo ${goalMatches[0].name}.`, data: task };
+    }
+
+    if (name === "get_system_status") {
+      const health = await getZyronHealth();
+      const data = {
+        ok: health.ok,
+        version: health.version,
+        checks: Object.fromEntries(Object.entries(health.checks).map(([key, check]) => [key, {
+          configured: check.configured,
+          reachable: check.reachable,
+          latencyMs: check.latencyMs,
+        }])),
+      };
+      return { ok: true, summary: health.ok ? "El núcleo de ZYRON está operativo." : "El núcleo de ZYRON tiene servicios que requieren revisión.", data };
+    }
+
+    if (name === "list_recent_actions") {
+      const limit = Math.max(1, Math.min(Number(args.limit) || 8, 20));
+      const actions = await listActions(limit);
+      return {
+        ok: true,
+        summary: `${actions.length} acciones verificadas recuperadas.`,
+        data: actions.map((action) => ({ action: action.action, summary: action.summary, createdAt: action.created_at })),
+      };
+    }
+
     if (name === "search_memory") {
       const query = textArgument(args, "query", 500) || input.userMessage;
       const memory = await buildMemoryContext(query, 12_000);
@@ -737,7 +890,7 @@ export async function executeAgentTool(input: {
     if (name === "remember_fact") {
       const fact = textArgument(args, "fact", 2_000).replace(/[.!?]+$/, "");
       if (!fact) return { ok: false, summary: "La memoria propuesta está vacía." };
-      const block = await recordManualMemoryFact(fact, { source: "zyron-agent-v0.7" });
+      const block = await recordManualMemoryFact(fact, { source: "zyron-agent-v0.20" });
       await audit("memory_saved", "Guardó una memoria solicitada explícitamente por el propietario.", { memoryBlockId: block.id });
       return { ok: true, summary: `Memoria guardada: ${fact}.`, data: { id: block.id } };
     }

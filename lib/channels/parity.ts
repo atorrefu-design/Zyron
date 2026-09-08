@@ -2,7 +2,7 @@ export type TelegramCapabilityState = "direct" | "agent" | "iphone";
 
 export const telegramCapabilityMatrix = [
   { capability: "Memoria canónica", state: "direct", detail: "Lectura y escritura en PostgreSQL/Neon; los comandos directos no usan IA." },
-  { capability: "Tareas", state: "agent", detail: "Listar, crear, completar, planificar y borrar con confirmación." },
+  { capability: "Tareas", state: "direct", detail: "Listar, crear, completar y planificar sin IA; borrar mediante el agente con confirmación." },
   { capability: "Calendario", state: "agent", detail: "Leer, crear y borrar con las confirmaciones de seguridad." },
   { capability: "Gmail", state: "agent", detail: "Buscar y leer; sin envío ni borrado." },
   { capability: "Google Drive", state: "agent", detail: "Buscar, leer, crear carpetas y documentos; escrituras con confirmación." },
