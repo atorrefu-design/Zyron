@@ -23,6 +23,71 @@ private func requireZyronSession() -> IntentDialog? {
         : IntentDialog("Primero abre la app companion de ZYRON e inicia sesión una vez en este iPhone.")
 }
 
+enum ZyronBluetoothContext: String, AppEnum {
+    case vehicle
+    case headphones
+    case work
+    case home
+    case other
+
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Contexto Bluetooth")
+    static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .vehicle: "Coche",
+        .headphones: "Auriculares",
+        .work: "Trabajo",
+        .home: "Casa",
+        .other: "Otro",
+    ]
+}
+
+enum ZyronBluetoothAction: String, AppEnum {
+    case briefing
+    case dailyPlan = "daily_plan"
+    case diagnostics
+    case recordOnly = "record_only"
+
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Acción de ZYRON")
+    static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .briefing: "Preparar briefing",
+        .dailyPlan: "Preparar plan del día",
+        .diagnostics: "Comprobar sistemas",
+        .recordOnly: "Solo activar contexto",
+    ]
+}
+
+struct BluetoothContextZyronIntent: AppIntent {
+    static var title: LocalizedStringResource = "Contexto Bluetooth ZYRON"
+    static var description = IntentDescription(
+        "Informa a ZYRON de una conexión Bluetooth y ejecuta una función segura sin usar IA."
+    )
+    static var openAppWhenRun = false
+    static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+    @Parameter(title: "Contexto", default: .vehicle)
+    var context: ZyronBluetoothContext
+
+    @Parameter(title: "Función", default: .briefing)
+    var action: ZyronBluetoothAction
+
+    @Parameter(title: "Nombre del dispositivo")
+    var deviceName: String?
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        if let dialog = requireZyronSession() { return .result(dialog: dialog) }
+        do {
+            let reply = try await NativeAPIClient.shared.handleBluetoothConnection(
+                context: context.rawValue,
+                action: action.rawValue,
+                deviceName: deviceName
+            )
+            return .result(dialog: IntentDialog(stringLiteral: reply))
+        } catch {
+            return .result(dialog: IntentDialog(stringLiteral: "No he podido activar el contexto Bluetooth: \(error.localizedDescription)"))
+        }
+    }
+}
+
 // These AppIntents remain available as iOS integration primitives, but they are deliberately
 // not advertised as conversational Siri phrases. The primary voice interface is the local
 // wake word «ZYRON» handled by Porcupine inside the companion app.
@@ -151,4 +216,3 @@ struct TestZyronNotificationIntent: AppIntent {
         return .result(dialog: "Aviso de prueba enviado.")
     }
 }
-

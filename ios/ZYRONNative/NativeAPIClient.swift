@@ -85,6 +85,12 @@ private struct NativeCalendarCommandRequest: Encodable {
     let message: String
 }
 
+private struct NativeBluetoothContextRequest: Encodable {
+    let context: String
+    let action: String
+    let deviceName: String?
+}
+
 enum NativeAPIError: LocalizedError {
     case notAuthenticated
     case invalidResponse
@@ -222,6 +228,24 @@ final class NativeAPIClient {
         let data = try await postJSON(
             path: "/api/calendar/command",
             body: NativeCalendarCommandRequest(message: message)
+        )
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reply = object["reply"] as? String,
+              !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NativeAPIError.invalidResponse
+        }
+        return reply
+    }
+
+    func handleBluetoothConnection(context: String, action: String, deviceName: String?) async throws -> String {
+        let cleanName = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let data = try await postJSON(
+            path: "/api/context/bluetooth",
+            body: NativeBluetoothContextRequest(
+                context: context,
+                action: action,
+                deviceName: cleanName?.isEmpty == false ? cleanName : nil
+            )
         )
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let reply = object["reply"] as? String,

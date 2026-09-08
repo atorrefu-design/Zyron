@@ -47,7 +47,7 @@ export async function POST(request: Request) {
           provider: null,
           model: null,
           creditsUsed: false,
-          agent: { version: "0.22.1", skills: [], steps: 1, toolsUsed: ["get_weather_forecast"] },
+          agent: { version: "0.23", skills: [], steps: 1, toolsUsed: ["get_weather_forecast"] },
         });
       } catch (error) {
         console.error("ZYRON_WEATHER_ROUTE_ERROR", error);
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
         provider: null,
         model: null,
         creditsUsed: false,
-        agent: { version: "0.22.1", skills: [], steps: 0, toolsUsed: [direct.tool] },
+        agent: { version: "0.23", skills: [], steps: 0, toolsUsed: [direct.tool] },
       });
     }
 
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       tool: result.trace.length ? result.trace[result.trace.length - 1].tool : result.memoriesUsed ? "memory" : "conversation",
       memoriesUsed: result.memoriesUsed,
       agent: {
-        version: "0.22.1",
+        version: "0.23",
         skills: result.skills,
         steps: result.trace.length,
         toolsUsed: result.trace.map((item) => item.tool),
