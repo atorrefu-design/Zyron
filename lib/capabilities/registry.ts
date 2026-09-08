@@ -23,6 +23,19 @@ export type ZyronCapability = {
 
 export const zyronCapabilities: readonly ZyronCapability[] = [
   {
+    id: "device.bluetooth_context",
+    label: "Contextos Bluetooth",
+    domain: "device",
+    accessLevel: "app_intent",
+    canRead: true,
+    canWrite: true,
+    requiresUserInteraction: true,
+    requiresConfirmation: false,
+    risk: "medium",
+    status: "partial",
+    fallback: "Crear una automatización personal de Bluetooth que ejecute la acción Contexto Bluetooth ZYRON.",
+  },
+  {
     id: "weather.forecast",
     label: "Tiempo y previsión",
     domain: "context",
