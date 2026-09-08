@@ -1,4 +1,4 @@
-# Contextos Bluetooth de ZYRON · v0.23
+# Contextos Bluetooth de ZYRON · v0.24
 
 ## Funcionamiento
 
@@ -20,6 +20,19 @@ El evento y la función son deterministas y no usan IA. El contexto queda tempor
 6. Escribe el nombre del dispositivo si quieres identificarlo en el historial.
 
 Apple exige que el propietario seleccione el dispositivo y autorice la automatización. ZYRON no intenta enumerar todos los dispositivos Bluetooth ni mantener una vigilancia Bluetooth clásica cuando la app está cerrada.
+
+## Modo coche con Google Maps
+
+Para el flujo de conducción usa la acción `Iniciar modo coche ZYRON`, no la acción genérica de contexto:
+
+1. En Atajos > Automatización crea un disparador `Bluetooth` para el coche.
+2. Marca `Ejecutar inmediatamente` y desactiva `Notificar al ejecutar` si iOS ofrece esa opción.
+3. Añade la acción `Iniciar modo coche ZYRON`.
+4. La automatización abre el companion porque iOS exige que una conversación WebRTC con micrófono pertenezca a la app visible.
+5. ZYRON saluda según la hora de Barcelona, pregunta el destino y escucha la respuesta.
+6. Al recibir el destino abre Google Maps directamente en modo conducción. Si la app no está instalada, usa la ruta web de Google Maps como respaldo.
+
+El saludo usa estos tramos: días de 05:00 a 13:59, tardes de 14:00 a 20:59 y noches de 21:00 a 04:59.
 
 ## Valores recomendados
 

@@ -276,6 +276,12 @@ final class NativeActionDispatcher {
             return Result(handled: true, succeeded: opened, reply: opened ? "Navegación iniciada." : NativeDeviceActionError.navigationUnavailable.localizedDescription, value: nil)
         }
 
+        register("navigation.google_maps.start") { envelope in
+            let destination = envelope.payload?["destination"] ?? envelope.input ?? ""
+            let opened = await NativeDeviceActions.shared.startGoogleMapsNavigation(to: destination)
+            return Result(handled: true, succeeded: opened, reply: opened ? "Google Maps abierto con la ruta preparada." : NativeDeviceActionError.navigationUnavailable.localizedDescription, value: nil)
+        }
+
         register("schedule_native_notification") { envelope in
             let title = envelope.payload?["title"] ?? "ZYRON"
             let body = envelope.payload?["body"] ?? envelope.input ?? ""
