@@ -16,6 +16,17 @@ type Rule = {
 
 const RULES: Rule[] = [
   {
+    capabilityId: "weather.forecast",
+    terms: ["tiempo", "clima", "lluvia", "temperatura", "previsión", "prevision", "pronóstico", "pronostico"],
+    reason: "La petición necesita información meteorológica actual o prevista.",
+  },
+  {
+    capabilityId: "gmail.drafts",
+    terms: ["borrador", "correo", "email", "e-mail"],
+    phrases: ["redacta un correo", "prepara un correo", "crea un borrador"],
+    reason: "La petición parece pedir la preparación de un borrador de Gmail.",
+  },
+  {
     capabilityId: "calendar.events",
     terms: ["calendario", "agenda", "evento", "cita", "reunión", "reunion"],
     phrases: ["qué tengo hoy", "que tengo hoy", "qué tengo mañana", "que tengo mañana"],
