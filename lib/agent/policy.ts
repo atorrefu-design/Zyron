@@ -61,7 +61,12 @@ const TOOL_POLICIES: Record<ZyronAgentToolName, ZyronAgentToolPolicy> = {
 };
 
 function explicitlyRequestsMemory(message: string) {
-  return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:en\s+tu\s+)?memoria|a\s+partir\s+de\s+ahora)(?:\b|\s)/i.test(message);
+  const clean = message
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  return /(?:^|\b)(recuerda|memoriza|guarda\s+(?:en\s+(?:(?:tu|la)\s+)?memoria)|guardalo(?:\s+en\s+(?:(?:tu|la)\s+)?memoria)?|a\s+partir\s+de\s+ahora)(?:\b|\s|[,.!])/i.test(clean);
 }
 
 export function explicitlyConfirmsAgentAction(message: string) {

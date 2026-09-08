@@ -1,9 +1,73 @@
 import type { MemoryBlock, MemoryMatch } from "../memory.ts";
+import type { ChannelMessage } from "./store.ts";
 
 const MAX_BLOCK_CONTENT = 3_000;
 
 function compact(value: string) {
   return value.replace(/\s+$/gm, "").trim();
+}
+
+function normalized(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9ñ/_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanFact(value: string) {
+  return value
+    .replace(/^\[Nota de voz transcrita\]\s*/i, "")
+    .replace(/^(?:buenos d[ií]as|buenas tardes|buenas noches|hola)(?:\s+zyron)?[,:;.!\s-]*/i, "")
+    .trim()
+    .replace(/[.!?]+$/, "")
+    .slice(0, 2_000);
+}
+
+function isMemoryConfirmation(text: string) {
+  const clean = normalized(text);
+  return /^(?:si )?(?:guardalo(?: en (?:tu |la )?memoria)?|hazlo|confirmo|intentalo de nuevo|reintentalo)$/.test(clean);
+}
+
+function explicitMemoryFact(text: string) {
+  const clean = text.trim();
+  const patterns = [
+    /^\/guardar_memoria(?:@[a-z0-9_]+)?\s+(.+)$/i,
+    /^(?:recuerda|memoriza)\s+(?:que\s+)?(.+)$/i,
+    /^guarda\s+(?:en\s+(?:(?:tu|la)\s+)?memoria\s+)?(?:que\s+)?(.+)$/i,
+    /^guarda\s+(.+?)\s+en\s+(?:(?:tu|la)\s+)?memoria$/i,
+  ];
+  for (const pattern of patterns) {
+    const fact = clean.match(pattern)?.[1];
+    if (fact) return cleanFact(fact);
+  }
+  return null;
+}
+
+export function looksLikeMemoryWriteRequest(text: string) {
+  return Boolean(explicitMemoryFact(text) || isMemoryConfirmation(text));
+}
+
+export function resolveMemoryWriteRequest(text: string, history: ChannelMessage[]) {
+  const explicit = explicitMemoryFact(text);
+  if (explicit) return { fact: explicit, source: "explicit" as const };
+  if (!isMemoryConfirmation(text)) return null;
+
+  const lastMemoryAssistantIndex = history.findLastIndex((message) =>
+    message.role === "assistant" && /memoria|recordar|guardad|guardarlo/i.test(message.content),
+  );
+  if (lastMemoryAssistantIndex < 0) return null;
+
+  for (let index = lastMemoryAssistantIndex - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message.role !== "user") continue;
+    if (looksLikeMemoryWriteRequest(message.content) || message.content.trim().startsWith("/")) continue;
+    const fact = cleanFact(message.content);
+    if (fact) return { fact, source: "confirmed_previous" as const };
+  }
+  return null;
 }
 
 function renderBlock(block: MemoryBlock, index: number) {

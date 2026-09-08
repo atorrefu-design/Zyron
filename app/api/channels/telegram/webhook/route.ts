@@ -37,6 +37,8 @@ import { recordAction } from "../../../../../lib/db";
 import { telegramLocationObservation } from "../../../../../lib/channels/location.ts";
 import {
   directMemoryQuery,
+  looksLikeMemoryWriteRequest,
+  resolveMemoryWriteRequest,
   renderMemoryPage,
   renderMemorySearch,
 } from "../../../../../lib/channels/memory-access.ts";
@@ -44,6 +46,7 @@ import {
   getMemoryStats,
   listMemoryBlocksPage,
   searchMemoryBlocks,
+  recordManualMemoryFact,
 } from "../../../../../lib/memory.ts";
 
 export const runtime = "nodejs";
@@ -69,6 +72,46 @@ async function audit(action: string, summary: string, metadata: Record<string, u
   } catch (error) {
     console.error("ZYRON_TELEGRAM_AUDIT_ERROR", error instanceof Error ? error.message : "unknown");
   }
+}
+
+async function saveTelegramMemory(input: {
+  chatId: string;
+  updateId: string;
+  messageId: number;
+  userText: string;
+  fact: string;
+  source: "explicit" | "confirmed_previous";
+}) {
+  const block = await recordManualMemoryFact(input.fact, {
+    source: "zyron-telegram-direct",
+    channel: CHANNEL,
+    confirmation: input.source,
+  });
+  const reply = `Hecho. He guardado en la memoria de ZYRON: «${input.fact}».`;
+  await appendChannelMessage({
+    channel: CHANNEL,
+    chatId: input.chatId,
+    role: "user",
+    content: input.userText,
+    externalMessageId: `telegram:${input.chatId}:${input.messageId}:user`,
+  });
+  await appendChannelMessage({
+    channel: CHANNEL,
+    chatId: input.chatId,
+    role: "assistant",
+    content: reply,
+    externalMessageId: `telegram:update:${input.updateId}:assistant`,
+  });
+  await deliverReply({
+    chatId: input.chatId,
+    updateId: input.updateId,
+    reply,
+    replyToMessageId: input.messageId,
+  });
+  await audit("channel_memory_saved", "Guardó una memoria explícitamente confirmada desde Telegram.", {
+    memoryBlockId: block.id,
+    confirmation: input.source,
+  });
 }
 
 async function deliverReply(input: {
@@ -191,7 +234,7 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: "ZYRON está conectado. Escríbeme, envíame una nota de voz o comparte tu ubicación en tiempo real. Memoria sin IA: /memoria tema, /memoria_toda 1 y /memoria_estado. Otros comandos: /status, /location, /forget_location y /reset.",
+        reply: "ZYRON está conectado. Escríbeme, envíame una nota de voz o comparte tu ubicación en tiempo real. Memoria directa: /guardar_memoria hecho, /memoria tema, /memoria_toda 1 y /memoria_estado. Otros comandos: /status, /location, /forget_location y /reset.",
         replyToMessageId: message.message_id,
       });
       return json({ ok: true });
@@ -240,6 +283,27 @@ export async function POST(request: Request) {
         replyToMessageId: message.message_id,
       });
       return json({ ok: true, directMemory: true });
+    }
+    if (command?.name === "guardar_memoria") {
+      const fact = command.argument.trim().slice(0, 2_000);
+      if (!fact) {
+        await deliverReply({
+          chatId,
+          updateId,
+          reply: "Escribe /guardar_memoria seguido del hecho que quieres conservar.",
+          replyToMessageId: message.message_id,
+        });
+        return json({ ok: true, directMemory: true });
+      }
+      await saveTelegramMemory({
+        chatId,
+        updateId,
+        messageId: message.message_id,
+        userText: text,
+        fact,
+        source: "explicit",
+      });
+      return json({ ok: true, directMemoryWrite: true });
     }
     if (command?.name === "memoria_toda") {
       const requestedPage = Number(command.argument || 1);
@@ -366,6 +430,21 @@ export async function POST(request: Request) {
     }
 
     if (inputMode === "text") {
+      if (looksLikeMemoryWriteRequest(cleanText)) {
+        const history = await listRecentChannelMessages(CHANNEL, chatId, 24);
+        const memoryWrite = resolveMemoryWriteRequest(cleanText, history);
+        if (memoryWrite) {
+          await saveTelegramMemory({
+            chatId,
+            updateId,
+            messageId: message.message_id,
+            userText: cleanText,
+            fact: memoryWrite.fact,
+            source: memoryWrite.source,
+          });
+          return json({ ok: true, directMemoryWrite: true });
+        }
+      }
       const memoryQuery = directMemoryQuery(cleanText);
       if (memoryQuery) {
         const matches = await searchMemoryBlocks(memoryQuery, { limit: 5, includeAlways: false });

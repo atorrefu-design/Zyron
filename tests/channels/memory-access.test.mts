@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   directMemoryQuery,
+  looksLikeMemoryWriteRequest,
   renderMemoryPage,
   renderMemorySearch,
+  resolveMemoryWriteRequest,
 } from "../../lib/channels/memory-access.ts";
+import { authorizeAgentTool } from "../../lib/agent/policy.ts";
 
 const block = {
   id: "memory:1",
@@ -39,4 +42,43 @@ test("full memory can be traversed deterministically by pages", () => {
   assert.match(reply, /página 1\/2/);
   assert.match(reply, /\/memoria_toda 2/);
   assert.match(reply, /sin IA/i);
+});
+
+test("Telegram saves an explicit fact without invoking the agent", () => {
+  const request = resolveMemoryWriteRequest("Guarda en tu memoria que Eloy queda descartado como fichaje", []);
+  assert.deepEqual(request, { fact: "Eloy queda descartado como fichaje", source: "explicit" });
+  assert.equal(looksLikeMemoryWriteRequest("Guarda en tu memoria que Eloy queda descartado como fichaje"), true);
+});
+
+test("Guárdalo en la memoria confirms the previous proposed fact", () => {
+  const history = [
+    { role: "user" as const, content: "Buenos días. Descartamos el fichaje de Eloy." },
+    { role: "assistant" as const, content: "¿Quieres que lo guarde en la memoria de ZYRON?" },
+  ];
+  assert.deepEqual(resolveMemoryWriteRequest("Guárdalo en la memoria", history), {
+    fact: "Descartamos el fichaje de Eloy",
+    source: "confirmed_previous",
+  });
+  assert.equal(authorizeAgentTool("remember_fact", "Guárdalo en la memoria").allowed, true);
+});
+
+test("a retry recovers the original fact after a failed memory write", () => {
+  const history = [
+    { role: "user" as const, content: "Descartamos el fichaje de Eloy" },
+    { role: "assistant" as const, content: "¿Quieres que lo guarde en la memoria?" },
+    { role: "user" as const, content: "Guárdalo en la memoria" },
+    { role: "assistant" as const, content: "No se ha guardado. La operación de memoria falló." },
+  ];
+  assert.deepEqual(resolveMemoryWriteRequest("Inténtalo de nuevo", history), {
+    fact: "Descartamos el fichaje de Eloy",
+    source: "confirmed_previous",
+  });
+});
+
+test("generic confirmations never create a memory without a memory prompt", () => {
+  const history = [
+    { role: "user" as const, content: "Crea una reunión mañana" },
+    { role: "assistant" as const, content: "Confirma si creo el evento." },
+  ];
+  assert.equal(resolveMemoryWriteRequest("Hazlo", history), null);
 });
