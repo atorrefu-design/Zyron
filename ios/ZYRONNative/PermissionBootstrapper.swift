@@ -96,7 +96,11 @@ final class PermissionBootstrapper: NSObject, CLLocationManagerDelegate {
 
     func contactsAuthorization() -> ContactsAuthorization {
         let status = CNContactStore.authorizationStatus(for: .contacts)
+        // Xcode 15 / Swift 5 SDKs do not declare CNAuthorizationStatus.limited.
+        // Runtime availability alone cannot hide an unknown SDK symbol.
+        #if compiler(>=6.0)
         if #available(iOS 18.0, *), status == .limited { return .limited }
+        #endif
         switch status {
         case .authorized: return .full
         case .denied, .restricted: return .denied
