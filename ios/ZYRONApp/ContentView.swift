@@ -53,12 +53,15 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .task {
+            // Yield a frame before restoring services; the panel must render first.
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            print("ZYRON_FIRST_SCREEN_VISIBLE")
             await controller.restore()
             await journal.flush()
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
-            ZyronAppShortcuts.updateAppShortcutParameters()
             Task { await controller.companionBecameActive(); await journal.flush() }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("zyron.intent.vehicle-requested"))) { _ in
