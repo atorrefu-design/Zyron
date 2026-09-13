@@ -35,3 +35,30 @@ Para generar el proyecto y comprobar una compilación de simulador sin abrir Xco
 ```
 
 La prueba final de audio con pantalla bloqueada requiere un iPhone físico; el simulador no valida ese comportamiento.
+
+## Modo coche en Atajos (companion 0.7.2)
+
+La acción se llama **Modo coche ZYRON**. Está definida en
+`ZYRONApp/ZyronShortcuts.swift` y se incluye al generar `ios/project.yml`.
+El arranque y el retorno a primer plano actualizan el catálogo de App Shortcuts.
+La pantalla del companion permite solicitar esa actualización manualmente.
+
+Para actualizar una instalación hecha con Xcode:
+1. Guarde los cambios locales que haya hecho con Claude antes de actualizar el repositorio.
+2. Incorpore esta versión y genere de nuevo el proyecto con `ios/bootstrap-xcode.sh`.
+3. Compile el target **ZYRON** de `ios/ZYRON.xcodeproj` para el iPhone.
+   No utilice `ios/CloudSmoke`: es una app de pruebas sin voz ni App Intents.
+4. Abra el companion y compruebe que indica **0.7.2**.
+5. Pulse **Actualizar acciones de Atajos**.
+6. En Atajos, cree un atajo, añada la acción **Modo coche ZYRON** y ejecútelo
+   con el teléfono desbloqueado para comprobar voz, permisos y sesión.
+7. Asigne ese atajo a una automatización personal Bluetooth, seleccionando
+   únicamente el dispositivo del coche y la ejecución inmediata si iOS la ofrece.
+
+La automatización y la selección del Bluetooth se realizan en el iPhone.
+Un despliegue de Vercel no instala App Intents en iOS. La actualización del catálogo
+no garantiza por sí sola su indexación; hay que comprobar la app instalada.
+La prueba de compilación tampoco verifica el audio del coche ni el comportamiento
+con la pantalla bloqueada.
+
+Referencia: [AppShortcutsProvider de Apple](https://developer.apple.com/documentation/appintents/appshortcutsprovider).

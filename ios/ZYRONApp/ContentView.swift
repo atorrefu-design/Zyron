@@ -1,9 +1,12 @@
+import AppIntents
 import Foundation
 import SwiftUI
 import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var controller: ZyronAppController
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var shortcutsMessage = ""
     @State private var ownerKey = ""
     @State private var picovoiceAccessKey = ""
     @FocusState private var focusedField: Field?
@@ -22,6 +25,7 @@ struct ContentView: View {
                     header
                     statusCard
                     cloudCompanionCard
+                    shortcutsCard
 
                     if controller.isAuthenticated {
                         conversationCard
@@ -43,6 +47,14 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .task {
             await controller.restore()
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            ZyronAppShortcuts.updateAppShortcutParameters()
+            Task { await controller.companionBecameActive() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("zyron.intent.vehicle-requested"))) { _ in
+            Task { await controller.companionBecameActive() }
         }
     }
 
@@ -88,7 +100,7 @@ struct ContentView: View {
                 Text("ZYRON")
                     .font(.system(size: 31, weight: .bold, design: .rounded))
                     .tracking(5)
-                Text("iPHONE COMPANION · 0.6.0")
+                Text("iPHONE COMPANION · \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                     .font(.caption2.weight(.semibold))
                     .tracking(1.5)
                     .foregroundStyle(.cyan.opacity(0.85))
@@ -153,6 +165,25 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(ZyronSecondaryButtonStyle())
+        }
+        .zyronCard()
+    }
+
+    private var shortcutsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            cardTitle("Modo coche y Atajos", icon: "car.fill")
+            Text("En Atajos, añada la acción «Modo coche ZYRON» a una automatización Bluetooth y seleccione su coche.")
+                .font(.footnote)
+            Button("Actualizar acciones de Atajos") {
+                ZyronAppShortcuts.updateAppShortcutParameters()
+                shortcutsMessage = "Catálogo actualizado. Abra Atajos y busque «Modo coche ZYRON». iOS gestiona cuándo aparece."
+            }
+            .buttonStyle(ZyronSecondaryButtonStyle())
+            if !shortcutsMessage.isEmpty {
+                Text(shortcutsMessage).font(.footnote).foregroundStyle(.secondary)
+            }
+            Text("Esta app debe ser el companion completo. La web y ZYRON Pruebas no publican esta acción. iOS puede pedir desbloquear el iPhone para abrir la app.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .zyronCard()
     }
