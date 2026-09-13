@@ -13,7 +13,7 @@ packages:
     revision: c23ab023ae410766cb835446765537b25013b166
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
-    exactVersion: 151.0.0
+    exactVersion: 150.0.0
 
 targets:
   ZYRON:
