@@ -6,7 +6,7 @@ import UIKit
 struct ContentView: View {
     @EnvironmentObject private var controller: ZyronAppController
     @Environment(\.scenePhase) private var scenePhase
-    @ObservedObject private var journal = ConversationJournal.shared
+    @State private var didStartRestore = false
     @State private var shortcutsMessage = ""
     @State private var ownerKey = ""
     @State private var picovoiceAccessKey = ""
@@ -29,12 +29,7 @@ struct ContentView: View {
                     shortcutsCard
 
                     if controller.isAuthenticated {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Memoria compartida").font(.headline)
-                            Text(journal.status).font(.caption)
-                            Button("Sincronizar conversaciones") { Task { await journal.flush() } }
-                            Link("Abrir historial", destination: URL(string: "https://zyron-five.vercel.app/history")!)
-                        }.padding()
+                        ConversationJournalCard()
                         conversationCard
                         contactsCard
                         alwaysOnCard
@@ -56,16 +51,18 @@ struct ContentView: View {
             // Yield a frame before restoring services; the panel must render first.
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
+            didStartRestore = true
             print("ZYRON_FIRST_SCREEN_VISIBLE")
             await controller.restore()
-            await journal.flush()
+            await ConversationJournal.shared.flush()
         }
         .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
-            Task { await controller.companionBecameActive(); await journal.flush() }
+            guard didStartRestore, phase == .active else { return }
+            Task { await controller.companionBecameActive(); await ConversationJournal.shared.flush() }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("zyron.intent.vehicle-requested"))) { _ in
-            Task { await controller.companionBecameActive(); await journal.flush() }
+            guard didStartRestore else { return }
+            Task { await controller.companionBecameActive(); await ConversationJournal.shared.flush() }
         }
     }
 
@@ -111,6 +108,7 @@ struct ContentView: View {
                 Text("ZYRON")
                     .font(.system(size: 31, weight: .bold, design: .rounded))
                     .tracking(5)
+                    .accessibilityIdentifier("zyron.home.title")
                 Text("iPHONE COMPANION · \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                     .font(.caption2.weight(.semibold))
                     .tracking(1.5)
@@ -529,4 +527,17 @@ private struct ZyronSecondaryButtonStyle: ButtonStyle {
 #Preview {
     ContentView()
         .environmentObject(ZyronAppController())
+}
+
+private struct ConversationJournalCard: View {
+    @ObservedObject private var journal = ConversationJournal.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Memoria compartida").font(.headline)
+            Text(journal.status).font(.caption)
+            Button("Sincronizar conversaciones") { Task { await journal.flush() } }
+            Link("Abrir historial", destination: URL(string: "https://zyron-five.vercel.app/history")!)
+        }.padding()
+    }
 }

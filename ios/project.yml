@@ -21,6 +21,9 @@ targets:
     platform: iOS
     sources:
       - path: ZYRONApp
+        excludes:
+          - "*.disabled"
+          - "ZyronAppIntents.swift"
       - path: ZYRONNative
         excludes:
           - "*.md"
@@ -32,8 +35,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.atorrefu.zyron
         PRODUCT_NAME: ZYRON
         SWIFT_VERSION: "5.0"
-        MARKETING_VERSION: "0.8.1"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "0.8.2"
+        CURRENT_PROJECT_VERSION: "5"
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: false
@@ -46,6 +49,10 @@ targets:
         CFBundleDisplayName: ZYRON
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations: {}
+        UIUserInterfaceStyle: Dark
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
@@ -70,16 +77,34 @@ targets:
         SWIFT_VERSION: "5.0"
         CODE_SIGNING_ALLOWED: false
 
+  ZYRONLaunchTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ZYRONLaunchTests
+    dependencies:
+      - target: ZYRON
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atorrefu.zyron.launchtests
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: ZYRON
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: U22A7479GJ
+
 schemes:
   ZYRON:
     build:
       targets:
         ZYRON: all
         ZYRONNativeTests: [test]
+        ZYRONLaunchTests: [test]
     test:
       gatherCoverageData: true
       targets:
         - ZYRONNativeTests
+        - ZYRONLaunchTests
     run:
       config: Debug
     archive:
