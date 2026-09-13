@@ -524,7 +524,8 @@ export async function recordManualMemoryFact(content: string, metadata: Record<s
     ON CONFLICT (id) DO UPDATE SET updated_at = NOW()
   `;
 
-  const id = `${MANUAL_DOCUMENT_ID}:${randomUUID()}`;
+  const replayKey = typeof metadata.idempotencyKey === "string" ? metadata.idempotencyKey : null;
+  const id = `${MANUAL_DOCUMENT_ID}:${replayKey ? contentHash(replayKey) : randomUUID()}`;
   const rows = await query`
     INSERT INTO zyron_memory_blocks (
       id, document_id, heading, section_path, content, position, priority, always_include, active, metadata
@@ -532,6 +533,7 @@ export async function recordManualMemoryFact(content: string, metadata: Record<s
       ${id}, ${MANUAL_DOCUMENT_ID}, ${"Memoria explícita"}, ${"Memoria manual"}, ${clean},
       ${Math.floor(Date.now() / 1000)}, 90, FALSE, TRUE, ${JSON.stringify({ source: "explicit-user-command", ...metadata })}::jsonb
     )
+    ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
     RETURNING id, document_id, heading, section_path, content, position, priority, always_include, metadata, created_at, updated_at
   `;
   return rows[0] as MemoryBlock;
@@ -569,4 +571,18 @@ export async function exportMemorySnapshot() {
     documents,
     blocks,
   };
+}
+
+export async function updateMemoryContent(id: string, expectedContent: string, content: string) {
+  const clean = content.trim();
+  if (!id || !clean || clean.length > 8000) throw new Error("Contenido no válido (máximo 8000 caracteres)");
+  await ensureMemoryTables();
+  const rows = await sql()`
+    UPDATE zyron_memory_blocks
+    SET content = ${clean}, updated_at = NOW(),
+        metadata = metadata || jsonb_build_object('previousContent', content, 'editedBy', 'owner')
+    WHERE id = ${id} AND content = ${expectedContent} AND active = TRUE
+    RETURNING id, content, updated_at
+  `;
+  return rows[0] || null;
 }

@@ -1,3 +1,4 @@
+import { ZYRON_PERSONA } from "../../../../lib/persona";
 import { createHmac } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -28,6 +29,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
     model: "gpt-realtime-2.1-mini",
     output_modalities: [outputMode],
     instructions: [
+    ZYRON_PERSONA,
       "Eres ZYRON, el asistente personal de Aarón.",
       "Habla siempre en español de España salvo que Aarón cambie de idioma.",
       "Conversa como una persona, no como un locutor ni como un asistente telefónico.",
@@ -64,7 +66,7 @@ function buildRealtimeSession(outputMode: OutputMode) {
           interrupt_response: true,
         },
       },
-      output: { voice: "marin" },
+      output: { voice: "cedar" },
     },
     tools: [
       {

@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       messages?: ChatMessage[];
       text?: string;
+      allowAI?: boolean;
       deviceLocation?: DeviceLocation | null;
     };
     const messages = (body.messages ?? []).filter(
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
       messages: messages.length ? messages : [{ role: "user" as const, content: text }],
       deviceLocation: body.deviceLocation ?? null,
       channel: "web",
+      allowAI: body.allowAI !== false,
     };
 
     const conditional = buildNativeConditional(text);
@@ -127,7 +129,7 @@ export async function POST(request: Request) {
     }
 
     if (decision.kind === "execute" && decision.transport === "server") {
-      if (decision.target === "/api/search/current") {
+      if (decision.target === "/api/search/current" && body.allowAI !== false) {
         const forwarded = await forward(request, decision.target, { query: text });
         return NextResponse.json(
           { ...forwarded.data, capabilityId: decision.capabilityId },

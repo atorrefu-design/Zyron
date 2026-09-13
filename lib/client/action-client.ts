@@ -10,7 +10,7 @@ export type ZyronActionResponse = {
   transport?: "server" | "native";
   target?: string;
   message?: string;
-  provider?: "openai" | "claude" | "gemini";
+  provider?: "openai" | "claude" | "gemini" | "local";
   model?: string;
   routeReason?: "default" | "explicit" | "automatic";
 };
@@ -24,6 +24,7 @@ export type ZyronDeviceLocation = {
 
 export type ZyronActionRequest = {
   text?: string;
+  allowAI?: boolean;
   messages?: Array<{ role: "user" | "assistant"; content: string }>;
   deviceLocation?: ZyronDeviceLocation | null;
 };
