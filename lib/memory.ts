@@ -1,3 +1,4 @@
+import { journalContext } from "./journal";
 import { createHash, randomUUID } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
@@ -490,13 +491,18 @@ export function rankMemoryBlocks(
 }
 
 export async function buildMemoryContext(query: string, maxCharacters = 20_000) {
-  const matches = await searchMemoryBlocks(query, { limit: 10, includeAlways: true });
+  const [matches, history] = await Promise.all([
+    searchMemoryBlocks(query, { limit: 10, includeAlways: true }),
+    journalContext(query, Math.min(6500, Math.floor(maxCharacters * 0.45))).catch(() => "Historial compartido temporalmente no disponible."),
+  ]);
   const selected: MemoryMatch[] = [];
   const parts: string[] = [];
-  let usedCharacters = 0;
+  let usedCharacters = history.length;
 
   for (const block of matches) {
-    const rendered = `[${block.section_path || block.heading}]\n${block.content}`;
+    const available = maxCharacters - usedCharacters;
+    if (available <= 0) break;
+    const rendered = `[${block.section_path || block.heading}]\n${block.content}`.slice(0, available);
     if (parts.length && usedCharacters + rendered.length > maxCharacters) continue;
     parts.push(rendered);
     selected.push(block);
@@ -504,7 +510,7 @@ export async function buildMemoryContext(query: string, maxCharacters = 20_000) 
   }
 
   return {
-    context: parts.length ? parts.join("\n\n---\n\n") : "No hay bloques de memoria local relevantes para este mensaje.",
+    context: [parts.length ? parts.join("\n\n---\n\n") : "No hay bloques de memoria local relevantes para este mensaje.", history].join("\n\n"),
     blocks: selected,
   };
 }

@@ -46,11 +46,11 @@ final class RealtimeConversationBridge {
             sessionCoordinator.registerConversationActivity()
             onSpeakingChanged?(false)
 
-        case "response.output_audio.delta", "response.audio.delta":
+        case "output_audio_buffer.started", "response.output_audio.delta", "response.audio.delta":
             sessionCoordinator.registerAssistantActivity()
             onSpeakingChanged?(true)
 
-        case "response.output_audio.done", "response.audio.done":
+        case "output_audio_buffer.stopped", "output_audio_buffer.cleared":
             sessionCoordinator.registerAssistantActivity()
             onSpeakingChanged?(false)
 
@@ -58,18 +58,21 @@ final class RealtimeConversationBridge {
             let text = event.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
             sessionCoordinator.handleLocalTranscript(text)
+            ConversationJournal.shared.record(role: "user", text: text, itemID: event.itemID)
             onUserTranscript?(text)
 
         case "response.output_audio_transcript.done", "response.audio_transcript.done":
             let text = event.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
             sessionCoordinator.registerAssistantActivity()
+            ConversationJournal.shared.record(role: "assistant", text: text, itemID: event.itemID)
             onAssistantTranscript?(text)
 
         case "response.output_text.done":
             let text = event.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !text.isEmpty else { return }
             sessionCoordinator.registerAssistantActivity()
+            ConversationJournal.shared.record(role: "assistant", text: text, itemID: event.itemID)
             outputRouter.handleAssistantText(text)
             onAssistantText?(text)
 

@@ -6,6 +6,7 @@ import UIKit
 struct ContentView: View {
     @EnvironmentObject private var controller: ZyronAppController
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var journal = ConversationJournal.shared
     @State private var shortcutsMessage = ""
     @State private var ownerKey = ""
     @State private var picovoiceAccessKey = ""
@@ -28,6 +29,12 @@ struct ContentView: View {
                     shortcutsCard
 
                     if controller.isAuthenticated {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Memoria compartida").font(.headline)
+                            Text(journal.status).font(.caption)
+                            Button("Sincronizar conversaciones") { Task { await journal.flush() } }
+                            Link("Abrir historial", destination: URL(string: "https://zyron-five.vercel.app/history")!)
+                        }.padding()
                         conversationCard
                         contactsCard
                         alwaysOnCard
@@ -47,14 +54,15 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .task {
             await controller.restore()
+            await journal.flush()
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             ZyronAppShortcuts.updateAppShortcutParameters()
-            Task { await controller.companionBecameActive() }
+            Task { await controller.companionBecameActive(); await journal.flush() }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("zyron.intent.vehicle-requested"))) { _ in
-            Task { await controller.companionBecameActive() }
+            Task { await controller.companionBecameActive(); await journal.flush() }
         }
     }
 

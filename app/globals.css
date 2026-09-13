@@ -266,3 +266,5 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
  .jarvisShell .composer { grid-column:2; grid-row:8; align-self:end; }
  .jarvisShell .note { grid-column:1 / -1; margin-top:25px; }
 }
+
+.jarvisShell .historyStatus { grid-column:1 / -1; font-size: .8rem; color:var(--muted); padding:.5rem; }

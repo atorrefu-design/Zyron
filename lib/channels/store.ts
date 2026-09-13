@@ -1,3 +1,5 @@
+import { ensureJournal, importRetainedTelegramHistory } from "../journal";
+import { learningKind } from "../journal-policy";
 import { neon } from "@neondatabase/serverless";
 import { createPairingCode, hashPairingCode, normalizePairingCode } from "./security";
 import type { ChannelLocationObservation, CurrentChannelLocation } from "./location.ts";
@@ -271,25 +273,18 @@ export async function appendChannelMessage(input: {
   externalMessageId?: string;
 }) {
   await ensureChannelTables();
+  await ensureJournal();
   await sql()`
-    DELETE FROM zyron_channel_messages
-    WHERE channel = ${input.channel}
-      AND created_at < NOW() - INTERVAL '30 days'
-  `;
-  await sql()`
-    INSERT INTO zyron_channel_messages (
-      channel, chat_id, role, content, external_message_id
+    WITH saved AS (
+      INSERT INTO zyron_channel_messages (channel,chat_id,role,content,external_message_id)
+      VALUES (${input.channel},${input.chatId},${input.role},${input.content.slice(0,20_000)},${input.externalMessageId || null})
+      ON CONFLICT (channel, external_message_id) WHERE external_message_id IS NOT NULL
+      DO UPDATE SET external_message_id=EXCLUDED.external_message_id
+      RETURNING id,created_at,content
     )
-    VALUES (
-      ${input.channel},
-      ${input.chatId},
-      ${input.role},
-      ${input.content.slice(0, 20_000)},
-      ${input.externalMessageId || null}
-    )
-    ON CONFLICT (channel, external_message_id)
-      WHERE external_message_id IS NOT NULL
-    DO NOTHING
+    INSERT INTO zyron_journal (id,channel,role,content,occurred_at,kind)
+    SELECT 'telegram:' || id::text,${input.channel},${input.role},content,created_at,${learningKind(input.role,input.content)} FROM saved
+    ON CONFLICT (id) DO NOTHING
   `;
 }
 
@@ -312,6 +307,7 @@ export async function listRecentChannelMessages(channel: string, chatId: string,
 
 export async function clearChannelMessages(channel: string, chatId: string) {
   await ensureChannelTables();
+  await importRetainedTelegramHistory();
   const rows = await sql()`
     DELETE FROM zyron_channel_messages
     WHERE channel = ${channel} AND chat_id = ${chatId}

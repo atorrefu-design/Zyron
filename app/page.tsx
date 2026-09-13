@@ -1,4 +1,5 @@
 "use client";
+import { queueJournal, flushJournal } from "../lib/client/journal";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
@@ -110,6 +111,15 @@ function proactiveMessage(alerts: ProactiveAlert[]) {
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [allowAI, setAllowAI] = useState(true);
+  const [historyStatus, setHistoryStatus] = useState("Historial automático activado.");
+  useEffect(() => {
+    const status = (event: Event) => setHistoryStatus((event as CustomEvent<string>).detail);
+    const online = () => { void flushJournal(); };
+    window.addEventListener("zyron:history-status", status);
+    window.addEventListener("online", online);
+    void flushJournal();
+    return () => { window.removeEventListener("zyron:history-status", status); window.removeEventListener("online", online); };
+  }, []);
   const [readAloud, setReadAloud] = useState(false);
   const [health, setHealth] = useState<Record<string, { configured: boolean; reachable: boolean | null }> | null>(null);
   const [healthError, setHealthError] = useState(false);
@@ -180,7 +190,8 @@ export default function Home() {
         const message = proactiveMessage(data.alerts ?? []);
         sessionStorage.setItem(PROACTIVE_KEY, new Date().toISOString());
         if (!message || cancelled) return;
-        setMessages((current) => [...current, { role: "assistant", content: message }]);
+        queueJournal("assistant", message);
+      setMessages((current) => [...current, { role: "assistant", content: message }]);
       } catch {
         // Proactivity must never block normal conversation.
       }
@@ -246,6 +257,7 @@ export default function Home() {
     const clean = text.trim();
     if (!clean || loading) return;
 
+    queueJournal("user", clean);
     const nextMessages = [...messages, { role: "user" as const, content: clean }];
     setMessages(nextMessages);
     setInput("");
@@ -320,6 +332,7 @@ export default function Home() {
           else throw new Error(data.error || "El núcleo respondió sin resultado");
         }
       }
+      queueJournal("assistant", reply);
       setMessages((current) => [...current, { role: "assistant", content: reply, engine }]);
       if (readAloud && (voiceState === "ready" || voiceState === "error") && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
@@ -335,6 +348,7 @@ export default function Home() {
         : error instanceof Error && error.message
           ? `No he podido responder: ${error.message}.`
           : "He perdido temporalmente la conexión con el núcleo remoto. Vuelve a intentarlo en unos segundos.";
+      queueJournal("assistant", message);
       setMessages((current) => [...current, { role: "assistant", content: message }]);
     } finally {
       window.clearTimeout(timeout);
@@ -375,7 +389,7 @@ export default function Home() {
           <a className="ghostButton navLink" href="/memory">Memoria</a>
           <a className="ghostButton navLink" href="/channels">Canales</a>
           <a className="ghostButton navLink" href="/activity">Actividad</a>
-          <button type="button" className="ghostButton" onClick={clearConversation}>Limpiar</button>
+          <button type="button" className="ghostButton" onClick={clearConversation}>Limpiar pantalla</button>
           <button type="button" className="ghostButton" onClick={logout}>Salir</button>
         </div>
       </header>
@@ -393,6 +407,7 @@ export default function Home() {
             return <span key={key} data-ok={check?.reachable === true}><i />{label} · {state}</span>;
           })}
         </div>
+        <div role="status" className="historyStatus"><a href="/history">Historial compartido</a> · {historyStatus} <button className="ghostButton" onClick={() => void flushJournal()}>Reintentar sincronización</button></div>
         <div className={`hologram state-${coreState}`} aria-hidden="true">
           <svg viewBox="0 0 600 400" className="holoSvg">
             <defs><radialGradient id="coreGlow"><stop stopColor="#95f8ff" stopOpacity=".65"/><stop offset="1" stopColor="#00ccff" stopOpacity="0"/></radialGradient></defs>

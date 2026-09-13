@@ -1,3 +1,4 @@
+import { listJournal } from "../journal";
 import { createTask, listActions, listTasks, recordAction, setTaskCompleted } from "../db";
 import { getZyronHealth } from "../health";
 import { listCalendarEvents } from "../google/calendar";
@@ -115,6 +116,14 @@ export async function executeDeterministicCommand(command: DeterministicCommand)
 }
 
 export async function runDeterministicCommand(text: string) {
+  const history = text.trim().match(/^(?:historial|busca en (?:el )?historial)(?:\s*[: ]\s*([\s\S]*))?$/i);
+  if (history) {
+    try {
+      const entries = (await listJournal(history[1]?.trim() || "")).slice(0,6);
+      return {handled:true,action:"history_read_direct",tool:"history",creditsUsed:false,
+        reply:entries.length ? entries.map(e=>`${e.channel} · ${e.role === "user" ? "Usted" : "Zyron"} · ${madridDate(e.occurredAt)}: ${e.content.slice(0,1200)}`).join("\n\n") : "No encuentro conversaciones guardadas para esa búsqueda."} satisfies DeterministicResult;
+    } catch { return {handled:true,action:"history_unavailable",tool:"history",creditsUsed:false,reply:"El historial no está disponible ahora mismo."} satisfies DeterministicResult; }
+  }
   const command = resolveDeterministicCommand(text);
   if (!command) return null;
   try {

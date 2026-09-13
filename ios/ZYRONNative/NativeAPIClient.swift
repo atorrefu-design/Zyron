@@ -55,6 +55,7 @@ private struct NativeChatRequest: Encodable {
     }
 
     let messages: [Message]
+    let channel = "ios"
     let deviceLocation: NativeDeviceLocation?
 }
 
@@ -188,12 +189,15 @@ final class NativeAPIClient {
         return NativeRealtimeCall(answerSDP: answer, outputMode: confirmedMode)
     }
 
+    @MainActor
     func queryCore(_ query: String, deviceLocation: NativeDeviceLocation? = nil) async throws -> String {
+        var messages = ConversationJournal.shared.recent.map { NativeChatRequest.Message(role: $0.role, content: $0.content) }
+        if messages.last?.role != "user" || messages.last?.content != query { messages.append(.init(role: "user", content: query)) }
         let body = NativeChatRequest(
-            messages: [.init(role: "user", content: query)],
+            messages: messages,
             deviceLocation: deviceLocation
         )
-        let data = try await postJSON(path: "/api/chat", body: body)
+        let data = try await postJSON(path: "/api/agent", body: body)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let reply = object["reply"] as? String,
               !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -268,6 +272,11 @@ final class NativeAPIClient {
         return json
     }
 
+    func saveConversationEvents(_ entries: [JournalEvent]) async throws {
+        struct Body: Encodable { let entries: [JournalEvent] }
+        _ = try await postJSON(path: "/api/history", body: Body(entries: entries))
+    }
+
     func logout() {
         KeychainStore.clearOwnerSession()
     }
@@ -278,6 +287,7 @@ final class NativeAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder().encode(body)
+        request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let http = try validatedHTTP(response)

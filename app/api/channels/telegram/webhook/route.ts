@@ -361,7 +361,7 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: `He borrado ${removed} mensajes del historial temporal de Telegram. La memoria permanente de ZYRON no se ha modificado.`,
+        reply: `He borrado ${removed} mensajes del historial temporal de Telegram. La memoria y el historial compartido se conservan; puede gestionarlos en https://zyron-five.vercel.app/history.`,
         replyToMessageId: message.message_id,
       });
       await audit("channel_history_cleared", "Borró el historial temporal de Telegram.", { removed });
