@@ -33,7 +33,8 @@ struct TalkToZyronIntent: AppIntent {
 }
 
 struct VehicleModeZyronIntent: AppIntent {
-    static var title: LocalizedStringResource = "Iniciar modo coche ZYRON"
+    static var title: LocalizedStringResource = "Modo coche ZYRON"
+    static var isDiscoverable: Bool = true
     static var description = IntentDescription(
         "Al conectarse al Bluetooth del coche, ZYRON saluda, pregunta el destino e inicia la ruta en Google Maps."
     )
@@ -47,6 +48,7 @@ struct VehicleModeZyronIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         UserDefaults.standard.set(true, forKey: "zyron.intent.start-voice")
         UserDefaults.standard.set(true, forKey: "zyron.intent.vehicle-mode")
+        NotificationCenter.default.post(name: Notification.Name("zyron.intent.vehicle-requested"), object: nil)
 
         if NativeAPIClient.shared.hasOwnerSession {
             _ = try? await NativeAPIClient.shared.handleBluetoothConnection(
