@@ -5,7 +5,7 @@ export const telegramCapabilityMatrix = [
   { capability: "Tareas", state: "direct", detail: "Listar, crear, completar y planificar sin IA; borrar mediante el agente con confirmación." },
   { capability: "Calendario", state: "agent", detail: "Leer, crear y borrar con las confirmaciones de seguridad." },
   { capability: "Gmail", state: "agent", detail: "Buscar, leer y crear borradores; sin envío ni borrado." },
-  { capability: "Tiempo", state: "agent", detail: "Tiempo actual y previsión contextual desde la ubicación autorizada." },
+  { capability: "Tiempo", state: "direct", detail: "Tiempo actual y previsión contextual desde la ubicación autorizada." },
   { capability: "Google Drive", state: "agent", detail: "Buscar, leer, crear carpetas y documentos; escrituras con confirmación." },
   { capability: "Ubicación y rutas", state: "agent", detail: "Última ubicación compartida, lugares y rutas con tráfico." },
   { capability: "Información actual", state: "agent", detail: "Consulta web verificada cuando la petición depende de datos vigentes." },

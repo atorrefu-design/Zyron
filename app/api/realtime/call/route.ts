@@ -1,3 +1,4 @@
+import { ZYRON_PERSONA } from "../../../../lib/persona";
 export const runtime = "nodejs";
 
 const OPENAI_REALTIME_URL = "https://api.openai.com/v1/realtime/calls";
@@ -13,6 +14,7 @@ const realtimeSession = {
   model: "gpt-realtime-2.1-mini",
   output_modalities: ["audio"],
   instructions: [
+    ZYRON_PERSONA,
     "Eres ZYRON, el asistente personal de Aarón.",
     "Habla siempre en español de España salvo que Aarón cambie de idioma.",
     "Conversa como una persona, no como un locutor ni como un asistente telefónico.",
@@ -40,7 +42,7 @@ const realtimeSession = {
       },
     },
     output: {
-      voice: "marin",
+      voice: "cedar",
     },
   },
   tools: [

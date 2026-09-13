@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-export type ZyronAIProvider = "openai" | "claude" | "gemini";
+export type ZyronAIProvider = "openai" | "claude" | "gemini" | "local";
 export type ZyronAIRouteReason = "default" | "explicit" | "automatic";
 export type ZyronAIMessage = { role: "user" | "assistant"; content: string };
 
@@ -15,7 +15,7 @@ export type ZyronAIProviderStatus = {
   provider: ZyronAIProvider;
   configured: boolean;
   model: string;
-  transport: "direct" | "vercel-ai-gateway";
+  transport: "direct" | "vercel-ai-gateway" | "local-server";
 };
 
 const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
@@ -24,10 +24,10 @@ const DEFAULT_CLAUDE_MODEL = "anthropic/claude-haiku-4.5";
 const DEFAULT_GEMINI_MODEL = "google/gemini-3.1-flash-lite";
 
 const PROVIDER_DIRECTIVES = [
-  /^(?:usa|utiliza|emplea)\s+(openai|chatgpt|claude|gemini)(?:\s+para\s+(?:responder|contestar))?\s*(?:[:,.\-–—]\s*|\s+)([\s\S]+)$/i,
-  /^(?:pregunta(?:le)?|consulta)\s+(?:a|con)\s+(openai|chatgpt|claude|gemini)\s*(?:[:,.\-–—]\s*|\s+)([\s\S]+)$/i,
-  /^(?:responde|contesta|hazlo)\s+(?:con|usando)\s+(openai|chatgpt|claude|gemini)\s*(?:[:,.\-–—]\s*|\s+)([\s\S]+)$/i,
-  /^(?:con\s+)?(openai|chatgpt|claude|gemini)\s*[:,.\-–—]\s*([\s\S]+)$/i,
+  /^(?:usa|utiliza|emplea)\s+(openai|chatgpt|claude|gemini|local)(?:\s+para\s+(?:responder|contestar))?\s*(?:[:,.\-–—]\s*|\s+)([\s\S]+)$/i,
+  /^(?:pregunta(?:le)?|consulta)\s+(?:a|con)\s+(openai|chatgpt|claude|gemini|local)\s*(?:[:,.\-–—]\s*|\s+)([\s\S]+)$/i,
+  /^(?:responde|contesta|hazlo)\s+(?:con|usando)\s+(openai|chatgpt|claude|gemini|local)\s*(?:[:,.\-–—]\s*|\s+)([\s\S]+)$/i,
+  /^(?:con\s+)?(openai|chatgpt|claude|gemini|local)\s*[:,.\-–—]\s*([\s\S]+)$/i,
 ];
 
 function normalizeProvider(value: string): ZyronAIProvider {
@@ -36,7 +36,8 @@ function normalizeProvider(value: string): ZyronAIProvider {
 
 function modelFor(provider: ZyronAIProvider) {
   if (provider === "claude") return process.env.ZYRON_CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL;
-  if (provider === "gemini") return process.env.ZYRON_GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  if (provider === "local") return process.env.ZYRON_LOCAL_MODEL || "";
+  if (provider === "gemini") return process.env.GEMINI_API_KEY ? (process.env.ZYRON_GEMINI_DIRECT_MODEL || "gemini-2.5-flash") : (process.env.ZYRON_GEMINI_MODEL || DEFAULT_GEMINI_MODEL);
   return process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
 }
 
@@ -64,7 +65,9 @@ export function resolveAISelection(message: string): ZyronAISelection {
     return { provider: automatic, model: modelFor(automatic), prompt: original, routeReason: "automatic" };
   }
 
-  return { provider: "openai", model: modelFor("openai"), prompt: original, routeReason: "default" };
+  const configuredDefault = process.env.ZYRON_DEFAULT_AI_PROVIDER;
+  const provider: ZyronAIProvider = configuredDefault === "local" || configuredDefault === "gemini" || configuredDefault === "claude" ? configuredDefault : "openai";
+  return { provider, model: modelFor(provider), prompt: original, routeReason: "default" };
 }
 
 export function getAIProviderStatuses(): ZyronAIProviderStatus[] {
@@ -84,10 +87,11 @@ export function getAIProviderStatuses(): ZyronAIProviderStatus[] {
     },
     {
       provider: "gemini",
-      configured: gatewayConfigured,
+      configured: Boolean(process.env.GEMINI_API_KEY) || gatewayConfigured,
       model: modelFor("gemini"),
-      transport: "vercel-ai-gateway",
+      transport: process.env.GEMINI_API_KEY ? "direct" : "vercel-ai-gateway",
     },
+    { provider: "local", configured: Boolean(process.env.ZYRON_LOCAL_BASE_URL && process.env.ZYRON_LOCAL_MODEL), model: modelFor("local"), transport: "local-server" },
   ];
 }
 
@@ -95,7 +99,7 @@ export class AIProviderUnavailableError extends Error {
   readonly provider: ZyronAIProvider;
 
   constructor(provider: ZyronAIProvider) {
-    super(provider === "openai"
+    super(provider === "local" ? "El servidor local no está conectado. Configure ZYRON_LOCAL_BASE_URL y ZYRON_LOCAL_MODEL en el servidor de Zyron." : provider === "gemini" ? "Gemini no está conectado. Configure una clave de API propia; instalar la app no concede acceso a su API." : provider === "openai"
       ? "OpenAI no está configurado en ZYRON."
       : `${provider === "claude" ? "Claude" : "Gemini"} todavía no está conectado. Falta configurar AI_GATEWAY_API_KEY en Vercel.`);
     this.provider = provider;
@@ -103,7 +107,14 @@ export class AIProviderUnavailableError extends Error {
   }
 }
 
-function clientFor(provider: ZyronAIProvider) {
+export function clientFor(provider: ZyronAIProvider) {
+  if (provider === "local") {
+    if (!process.env.ZYRON_LOCAL_BASE_URL || !process.env.ZYRON_LOCAL_MODEL) throw new AIProviderUnavailableError(provider);
+    return new OpenAI({ apiKey: process.env.ZYRON_LOCAL_API_KEY || "local", baseURL: process.env.ZYRON_LOCAL_BASE_URL, timeout: 45000, maxRetries: 0 });
+  }
+  if (provider === "gemini" && process.env.GEMINI_API_KEY) {
+    return new OpenAI({ apiKey: process.env.GEMINI_API_KEY, baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", timeout: 45000, maxRetries: 0 });
+  }
   if (provider === "openai") {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new AIProviderUnavailableError(provider);
@@ -132,14 +143,13 @@ export async function generateZyronReply(input: {
   messages: ZyronAIMessage[];
 }) {
   const client = clientFor(input.selection.provider);
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: input.selection.model,
-    instructions: input.instructions,
-    input: messagesWithPrompt(input.messages, input.selection.prompt),
+    messages: [{ role: "system", content: input.instructions }, ...messagesWithPrompt(input.messages, input.selection.prompt)],
   });
 
   return {
-    text: response.output_text?.trim() || "No he podido construir una respuesta útil.",
+    text: response.choices[0]?.message.content?.trim() || "No he podido construir una respuesta útil.",
     provider: input.selection.provider,
     model: input.selection.model,
     routeReason: input.selection.routeReason,

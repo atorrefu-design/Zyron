@@ -1,10 +1,10 @@
-import OpenAI from "openai";
+import { ZYRON_PERSONA } from "../persona";
 import type {
   ChatCompletionAssistantMessageParam,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import {
-  AIProviderUnavailableError,
+  clientFor,
   resolveAISelection,
   type ZyronAIMessage,
   type ZyronAIProvider,
@@ -16,7 +16,6 @@ import { agentToolDefinitions, executeAgentTool } from "./tools";
 import { agentLocationContext, type CurrentChannelLocation } from "../channels/location.ts";
 import { getCurrentDeviceContext, renderDeviceContext } from "../device-context";
 
-const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 export type ZyronAgentTrace = {
   step: number;
@@ -36,17 +35,6 @@ export type ZyronAgentResult = {
 };
 
 export type ZyronAgentChannel = "web" | "ios" | "telegram" | "api";
-
-function clientFor(provider: ZyronAIProvider) {
-  if (provider === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new AIProviderUnavailableError(provider);
-    return new OpenAI({ apiKey });
-  }
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) throw new AIProviderUnavailableError(provider);
-  return new OpenAI({ apiKey, baseURL: AI_GATEWAY_BASE_URL });
-}
 
 function recentMessages(messages: ZyronAIMessage[], prompt: string): ChatCompletionMessageParam[] {
   const recent = messages.slice(-16).map((message) => ({ ...message }));
@@ -72,7 +60,8 @@ function systemInstructions(input: {
   channel: ZyronAgentChannel;
 }) {
   return [
-    "# Núcleo único ZYRON v0.23",
+    "# Núcleo único ZYRON",
+    ZYRON_PERSONA,
     `Canal actual: ${input.channel}. El canal es solo una interfaz: conserva la misma identidad, memoria, herramientas y políticas de ZYRON.`,
     "Resuelve la petición completa con el mínimo número de pasos útiles.",
     "Usa herramientas para datos reales o acciones. No inventes resultados de herramientas.",

@@ -1,3 +1,4 @@
+import { ZYRON_VOICE_STYLE } from "../../../../lib/persona";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
@@ -65,7 +66,7 @@ async function createPrimarySpeech(client: OpenAI, input: string) {
         model: "gpt-4o-mini-tts",
         voice: "cedar",
         input,
-        instructions: "Habla en español de España, con una voz natural, cercana y segura. Ritmo conversacional, sin sonar teatral. Pronuncia horas, direcciones y cifras con claridad.",
+        instructions: ZYRON_VOICE_STYLE,
         response_format: "wav",
       });
     } catch (error) {

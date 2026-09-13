@@ -9,7 +9,7 @@ import {
 } from "../lib/client/action-client";
 import RealtimeVoice, { type RealtimeVoiceState } from "./realtime-voice";
 
-type Message = { role: "user" | "assistant"; content: string; engine?: "OpenAI" | "Claude" | "Gemini" };
+type Message = { role: "user" | "assistant"; content: string; engine?: "OpenAI" | "Claude" | "Gemini" | "Local" };
 type CoreState = "ready" | "listening" | "thinking" | "speaking";
 type PendingCalendarCommand = { originalMessage: string; eventId: string };
 type PendingCalendarChoice = { originalMessage: string; events: Array<{ id: string; title?: string }> };
@@ -38,7 +38,7 @@ type DeviceLocation = {
 
 const initialMessages: Message[] = [{
   role: "assistant",
-  content: "Buenas, Aarón. El núcleo privado de ZYRON está activo. Puedes hablar conmigo en tiempo real o escribirme.",
+  content: "A su disposición, señor. ¿En qué puedo ayudarle?",
 }];
 const CHAT_TIMEOUT_MS = 35_000;
 const quickPrompts = ["Ponme al día", "¿Qué tengo hoy?", "¿Qué tiempo hará?", "Prepara mi plan del día", "¿Qué correos requieren atención?"];
@@ -103,12 +103,17 @@ function selectedChoice(message: string, choices: PendingCalendarChoice) {
 function proactiveMessage(alerts: ProactiveAlert[]) {
   const selected = alerts.filter((alert) => alert.severity === "alta").slice(0, 3);
   if (!selected.length) return null;
-  const lines = selected.map((alert, index) => `${index + 1}. ${alert.title}\n   ${alert.detail}\n   Te propongo: ${alert.suggestedAction}`);
-  return `Aarón, antes de que me preguntes nada he detectado ${selected.length} asunto${selected.length === 1 ? "" : "s"} que conviene mirar:\n${lines.join("\n")}`;
+  const lines = selected.map((alert, index) => `${index + 1}. ${alert.title}\n   ${alert.detail}\n   Le propongo: ${alert.suggestedAction}`);
+  return `Señor, he detectado ${selected.length} asunto${selected.length === 1 ? "" : "s"} que conviene mirar:\n${lines.join("\n")}`;
 }
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [allowAI, setAllowAI] = useState(true);
+  const [readAloud, setReadAloud] = useState(false);
+  const [health, setHealth] = useState<Record<string, { configured: boolean; reachable: boolean | null }> | null>(null);
+  const [healthError, setHealthError] = useState(false);
+  const [motion, setMotion] = useState(true);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [voiceState, setVoiceState] = useState<RealtimeVoiceState>("ready");
@@ -125,11 +130,20 @@ export default function Home() {
         ? "speaking"
         : "ready";
   const coreLabel = {
-    ready: "Núcleo privado activo",
+    ready: health ? (health.database?.reachable && health.memory?.reachable ? "Conectado al núcleo" : "Núcleo con incidencias") : healthError ? "Sin conexión verificada" : "Comprobando conexión",
     listening: "Conversación activa · escuchando",
     thinking: "Pensando",
     speaking: "Conversación activa · hablando",
   }[coreState];
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/health", { signal: controller.signal, cache: "no-store" })
+      .then(async (r) => { const data = await r.json(); if (!data.checks) throw new Error(); return data; })
+      .then((data) => setHealth(data.checks || null))
+      .catch((e) => { if (e.name !== "AbortError") setHealthError(true); });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const updateClock = () => setClock(new Intl.DateTimeFormat("es-ES", {
@@ -179,7 +193,7 @@ export default function Home() {
 
   useEffect(() => {
     sessionStorage.setItem("zyron-session-messages", JSON.stringify(messages.slice(-30)));
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (messages.length > initialMessages.length || loading) chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
   useEffect(() => {
@@ -243,32 +257,35 @@ export default function Home() {
     try {
       let reply: string;
       let engine: Message["engine"];
-      if (pendingChoice && isCancellation(clean)) {
+      if (!allowAI && (pendingChoice || pendingCalendar)) {
+        setPendingChoice(null); setPendingCalendar(null);
+        reply = "Señor, he cancelado la operación pendiente al entrar en modo sin IA. Para interpretar fechas en lenguaje natural, active Conversación con IA.";
+      } else if (pendingChoice && isCancellation(clean)) {
         setPendingChoice(null);
-        reply = "De acuerdo. He cancelado la selección y no he cambiado nada en tu calendario.";
+        reply = "De acuerdo. He cancelado la selección y no he cambiado nada en su calendario.";
       } else if (pendingChoice) {
         const selected = selectedChoice(clean, pendingChoice);
         reply = selected
           ? await runCalendarCommand(clean, { eventId: selected.id, originalMessage: pendingChoice.originalMessage })
-          : `Indica un número entre 1 y ${pendingChoice.events.length}, o di “cancela”.`;
+          : `Indique un número entre 1 y ${pendingChoice.events.length}, o di “cancela”.`;
       } else if (pendingCalendar && isCancellation(clean)) {
         setPendingCalendar(null);
-        reply = "De acuerdo. He cancelado la operación y no he cambiado nada en tu calendario.";
+        reply = "De acuerdo. He cancelado la operación y no he cambiado nada en su calendario.";
       } else if (pendingCalendar && isConfirmation(clean)) {
         reply = await runCalendarCommand(clean, { eventId: pendingCalendar.eventId, confirmation: true, originalMessage: pendingCalendar.originalMessage });
       } else if (pendingCalendar) {
         setPendingCalendar(null);
-        reply = "He descartado la operación pendiente. Dime la nueva instrucción completa y la ejecutaré desde cero.";
+        reply = "He descartado la operación pendiente. Indíqueme la nueva instrucción completa y la ejecutaré desde cero.";
       } else if (isBriefingQuery(clean)) {
         reply = await runBriefing();
-      } else if (isCalendarManagementCommand(clean)) {
+      } else if (allowAI && isCalendarManagementCommand(clean)) {
         reply = await runCalendarCommand(clean);
       } else {
         const deviceLocation = isMobilityQuery(clean) || /\b(tiempo|clima|lluvia|temperatura|prevision|pronostico)\b/.test(normalize(clean))
           ? await currentDeviceLocation()
           : null;
         const data = await executeZyronRequest(
-          { messages: nextMessages, deviceLocation },
+          { messages: nextMessages, deviceLocation, allowAI },
           { signal: controller.signal },
         );
 
@@ -298,12 +315,20 @@ export default function Home() {
           if (blocked) reply = blocked;
           else if (data.reply?.trim()) {
             reply = data.reply.trim();
-            engine = data.provider === "claude" ? "Claude" : data.provider === "gemini" ? "Gemini" : data.provider === "openai" ? "OpenAI" : undefined;
+            engine = data.provider === "claude" ? "Claude" : data.provider === "gemini" ? "Gemini" : data.provider === "openai" ? "OpenAI" : data.provider === "local" ? "Local" : undefined;
           }
           else throw new Error(data.error || "El núcleo respondió sin resultado");
         }
       }
       setMessages((current) => [...current, { role: "assistant", content: reply, engine }]);
+      if (readAloud && (voiceState === "ready" || voiceState === "error") && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(reply);
+        utterance.lang = "es-ES"; utterance.rate = 0.96;
+        const voice = window.speechSynthesis.getVoices().find((v) => v.lang === "es-ES" && v.localService);
+        if (voice) utterance.voice = voice;
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (error) {
       const message = error instanceof DOMException && error.name === "AbortError"
         ? "La consulta ha tardado demasiado y la he detenido. Prueba de nuevo en unos segundos."
@@ -337,14 +362,14 @@ export default function Home() {
   }
 
   return (
-    <main className="shell">
+    <main className={`shell jarvisShell ${motion ? "" : "motionOff"}`}>
       <header className="header">
         <div><div className="brand">ZYRON</div><div className={`status state-${coreState}`}>● {coreLabel}</div></div>
         <div className="headerActions">
           <a className="ghostButton navLink" href="/briefing">Briefing</a>
           <a className="ghostButton navLink" href="/calendar">Calendar</a>
           <a className="ghostButton navLink" href="/maps">Movilidad</a>
-          <a className="ghostButton navLink" href="/dashboard">Panel</a>
+          <a className="ghostButton navLink" href="/connections">Conexiones</a>
           <a className="ghostButton navLink" href="/goals">Objetivos</a>
           <a className="ghostButton navLink" href="/tasks">Tareas</a>
           <a className="ghostButton navLink" href="/memory">Memoria</a>
@@ -357,17 +382,40 @@ export default function Home() {
 
       <section className="panel commandPanel">
         <div className="commandHeader">
-          <div><div className="eyebrow">JARVIS MODE · SISTEMA PRIVADO</div><h1>Centro de mando</h1></div>
+          <div><div className="eyebrow">ZYRON / PERSONAL OPERATING SYSTEM</div><h1>A su disposición, señor.</h1></div>
           <div className="systemClock"><span>EUROPE / MADRID</span><strong>{clock || "--:--"}</strong></div>
         </div>
-        <p className="subtitle">Una sola identidad en web, app y Telegram. Conversación natural con memoria, agenda, correo, Drive, movilidad, tiempo y acciones verificables.</p>
-        <div className="systemsRail" aria-label="Sistemas conectados">
-          <span><i /> Memoria común</span><span><i /> Google Workspace</span><span><i /> Tiempo real</span><span><i /> Voz continua</span>
+        <p className="subtitle">Su memoria, sus herramientas y su conversación. Un único núcleo, esté donde esté.</p>
+        <div className="systemsRail" aria-label="Estado comprobado de sistemas">
+          {[['database', 'Núcleo'], ['memory', 'Memoria'], ['openai', 'API OpenAI'], ['maps', 'Mapas']].map(([key, label]) => {
+            const check = health?.[key];
+            const state = !check ? 'Sin verificar' : !check.configured ? 'Sin conectar' : check.reachable === true ? 'Disponible' : check.reachable === false ? 'Incidencia' : 'Configurado';
+            return <span key={key} data-ok={check?.reachable === true}><i />{label} · {state}</span>;
+          })}
+        </div>
+        <div className={`hologram state-${coreState}`} aria-hidden="true">
+          <svg viewBox="0 0 600 400" className="holoSvg">
+            <defs><radialGradient id="coreGlow"><stop stopColor="#95f8ff" stopOpacity=".65"/><stop offset="1" stopColor="#00ccff" stopOpacity="0"/></radialGradient></defs>
+            <path d="M0 200H130M470 200H600M300 0V45M300 355V400" stroke="#1f5869" fill="none"/>
+            <circle cx="300" cy="200" r="150" fill="url(#coreGlow)"/>
+            <g className="holoOuter"><circle cx="300" cy="200" r="157" fill="none" stroke="#38b6ca" strokeWidth="1" strokeDasharray="2 8"/><circle cx="300" cy="200" r="140" fill="none" stroke="#75edff" strokeWidth="3" strokeDasharray="150 40 10 25"/></g>
+            <g className="holoInner"><circle cx="300" cy="200" r="114" fill="none" stroke="#2197b0" strokeWidth="16" strokeDasharray="2 8"/><circle cx="300" cy="200" r="93" fill="none" stroke="#8cedff" strokeWidth="2" strokeDasharray="160 130"/></g>
+            <circle cx="300" cy="200" r="73" fill="#05121c" stroke="#4edcf6"/>
+            <path d="M270 168H332L271 233H333" fill="none" stroke="#b4f7ff" strokeWidth="3"/>
+            <text x="300" y="300" textAnchor="middle" fill="#a3dce7" fontSize="9" letterSpacing="5">ZYRON CORE</text>
+          </svg>
+          <div className="holoCaption"><span>{coreLabel}</span><small>INTERFAZ PERSONAL · {allowAI ? 'CONVERSACIÓN' : 'ÓRDENES DIRECTAS'}</small></div>
+        </div>
+        <div className="modeToolbar">
+          <label><input type="checkbox" checked={allowAI} disabled={voiceState !== 'ready' && voiceState !== 'error'} onChange={(e) => setAllowAI(e.target.checked)} /> Conversación con IA</label>
+          <label><input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} /> Leer respuestas con voz del dispositivo</label>
+          <button type="button" className="ghostButton" onClick={() => setMotion(!motion)}>{motion ? 'Pausar animación' : 'Animar núcleo'}</button>
+          <button type="button" className="ghostButton" onClick={() => window.speechSynthesis?.cancel()}>Silenciar lectura</button>
         </div>
         <div className="voiceBar">
           <RealtimeVoice
-            disabled={loading}
-            onStateChange={setVoiceState}
+            disabled={loading || !allowAI}
+            onStateChange={(state) => { setVoiceState(state); if (state !== "ready" && state !== "error") window.speechSynthesis?.cancel(); }}
             onUserTranscript={(text) => setMessages((current) => [...current, { role: "user", content: text }])}
             onAssistantTranscript={(text) => setMessages((current) => [...current, { role: "assistant", content: text }])}
             onError={(message) => setMessages((current) => [...current, { role: "assistant", content: `Voz: ${message}` }])}
@@ -379,7 +427,7 @@ export default function Home() {
           <a href="/maps"><span>MOVILIDAD</span><strong>Rutas y tráfico</strong></a>
           <a href="/dashboard"><span>SISTEMAS</span><strong>Estado y herramientas</strong></a>
         </div>
-        <div className="headerActions" aria-label="Consultas rápidas">
+        <div className="headerActions quickPrompts" aria-label="Consultas rápidas">
           {quickPrompts.map((prompt) => <button className="ghostButton" type="button" key={prompt} disabled={loading} onClick={() => void sendText(prompt)}>{prompt}</button>)}
         </div>
         <div className="chat" aria-live="polite">
@@ -397,7 +445,7 @@ export default function Home() {
           <input aria-label="Mensaje para ZYRON" value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ej.: Ponme al día" autoComplete="off" />
           <button type="submit" disabled={loading || !input.trim()}>Enviar</button>
         </form>
-        <div className="note">El micrófono solo permanece activo mientras la conversación de voz está iniciada. Las escrituras sensibles conservan sus confirmaciones de seguridad.</div>
+        <div className="note">Voz continua con IA · Micrófono activo solo durante la sesión · Órdenes directas disponibles sin modelo generativo.</div>
       </section>
     </main>
   );

@@ -116,3 +116,17 @@ test("generic confirmations never create a memory without a memory prompt", () =
   ];
   assert.equal(resolveMemoryWriteRequest("Hazlo", history), null);
 });
+
+test("an unrelated A after a newer topic never revives a memory proposal", () => {
+  const history = [
+    { role: "user" as const, content: "Eloy queda descartado" },
+    { role: "assistant" as const, content: "¿Lo guardo en la memoria?" },
+    { role: "user" as const, content: "Mejor crea una reunión" },
+    { role: "assistant" as const, content: "A) Crear reunión. B) Cancelar." },
+  ];
+  assert.equal(resolveMemoryWriteRequest("A", history), null);
+});
+
+test("saving a document is not interpreted as a memory fact", () => {
+  assert.equal(resolveMemoryWriteRequest("Guarda el documento en Drive", []), null);
+});
