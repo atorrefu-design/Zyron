@@ -38,7 +38,6 @@ function explicitMemoryFact(text: string) {
     /^(?:recuerda|memoriza)\s+(?:que\s+)?(.+)$/i,
     /^guarda\s+(?:en\s+)?(?:(?:tu|la)\s+)?memoria\s+(?:que\s+)?(.+)$/i,
     /^guarda\s+(.+?)\s+en\s+(?:(?:tu|la)\s+)?memoria$/i,
-    /^guarda\s+(?:que\s+)?(.+)$/i,
   ];
   for (const pattern of patterns) {
     const fact = clean.match(pattern)?.[1];
@@ -47,13 +46,17 @@ function explicitMemoryFact(text: string) {
   return null;
 }
 
-function hasMemoryConfirmationContext(history: ChannelMessage[]) {
-  const content = history
-    .filter((message) => message.role === "assistant")
-    .slice(-4)
-    .map((message) => normalized(message.content))
-    .join(" ");
-  return /\bmemoria\b/.test(content) && /\b(?:guarda|guarde|guardado|guardar|reintenta|intenta|opcion|api|fallo|error)\b/.test(content);
+function hasMemoryConfirmationContext(history: ChannelMessage[]): boolean {
+  const lastAssistant = history.findLastIndex((message) => message.role === "assistant");
+  if (lastAssistant < 0) return false;
+  // A later topic or user instruction invalidates an older memory proposal.
+  if (history.slice(lastAssistant + 1).some((message) => message.role === "user" && !isMemoryConfirmation(message.content))) return false;
+  const content = normalized(history[lastAssistant].content);
+  if (/\bmemoria\b/.test(content) && /\b(?:guarda|guarde|guardado|guardar|fallo|error)\b/.test(content)) return true;
+  if (!/\b(?:reintenta|intenta|intento|fallo|error|api)\b/.test(content)) return false;
+  const previousUser = history.slice(0, lastAssistant).findLastIndex((message) => message.role === "user");
+  return previousUser >= 0 && isMemoryConfirmation(history[previousUser].content)
+    && hasMemoryConfirmationContext(history.slice(0, previousUser));
 }
 
 export function looksLikeMemoryWriteRequest(text: string) {

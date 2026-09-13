@@ -1,4 +1,5 @@
 "use client";
+import { queueJournal } from "../lib/client/journal";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -515,12 +516,13 @@ export default function RealtimeVoice({
       case "response.created":
         updateState("thinking");
         break;
+      case "output_audio_buffer.started":
       case "response.output_audio.delta":
       case "response.audio.delta":
         updateState("speaking");
         break;
-      case "response.output_audio.done":
-      case "response.audio.done":
+      case "output_audio_buffer.stopped":
+      case "output_audio_buffer.cleared":
         updateState("listening");
         break;
       case "conversation.item.input_audio_transcription.completed": {
@@ -528,6 +530,7 @@ export default function RealtimeVoice({
         const key = event.item_id || text || "";
         if (text && key && !userSeenRef.current.has(key)) {
           userSeenRef.current.add(key);
+          queueJournal("user", text, key);
           rememberTurn("user", text);
           callbacksRef.current.onUserTranscript?.(text);
         }
@@ -539,6 +542,7 @@ export default function RealtimeVoice({
         const key = event.item_id || text || "";
         if (text && key && !assistantSeenRef.current.has(key)) {
           assistantSeenRef.current.add(key);
+          queueJournal("assistant", text, key);
           rememberTurn("assistant", text);
           callbacksRef.current.onAssistantTranscript?.(text);
         }
@@ -706,11 +710,11 @@ export default function RealtimeVoice({
   const label = state === "connecting"
     ? "Conectando conversación…"
     : state === "listening"
-      ? "Te escucho…"
+      ? "Le escucho…"
       : state === "thinking"
         ? "Pensando…"
         : state === "speaking"
-          ? "Hablando contigo…"
+          ? "Hablando con usted…"
           : state === "error"
             ? "La voz necesita reconectarse"
             : "Toca el núcleo para iniciar una conversación";

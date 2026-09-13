@@ -1,3 +1,4 @@
+import { formatWeatherReply, getWeatherForecast, weatherRequestHorizon } from "../../../../../lib/weather";
 import { NextResponse } from "next/server";
 import { AIProviderUnavailableError } from "../../../../../lib/ai/router";
 import { runZyronAgent } from "../../../../../lib/agent/runtime";
@@ -88,10 +89,11 @@ async function saveTelegramMemory(input: {
 }) {
   const block = await recordManualMemoryFact(input.fact, {
     source: "zyron-telegram-direct",
+    idempotencyKey: `telegram:${input.chatId}:${input.updateId}:memory`,
     channel: CHANNEL,
     confirmation: input.source,
   });
-  const reply = `Hecho. He guardado en la memoria de ZYRON: «${input.fact}».`;
+  const reply = `Hecho, señor. He guardado en la memoria de ZYRON: «${block.content}».`;
   await appendChannelMessage({
     channel: CHANNEL,
     chatId: input.chatId,
@@ -359,7 +361,7 @@ export async function POST(request: Request) {
       await deliverReply({
         chatId,
         updateId,
-        reply: `He borrado ${removed} mensajes del historial temporal de Telegram. La memoria permanente de ZYRON no se ha modificado.`,
+        reply: `He borrado ${removed} mensajes del historial temporal de Telegram. La memoria y el historial compartido se conservan; puede gestionarlos en https://zyron-five.vercel.app/history.`,
         replyToMessageId: message.message_id,
       });
       await audit("channel_history_cleared", "Borró el historial temporal de Telegram.", { removed });
@@ -442,6 +444,21 @@ export async function POST(request: Request) {
       }
     }
 
+    const noAI = /^\/sin_ia(?:@[a-z0-9_]+)?(?:\s|$)/i.test(cleanText);
+    if (noAI) cleanText = cleanText.replace(/^\/sin_ia(?:@[a-z0-9_]+)?\s*/i, "");
+    const horizon = weatherRequestHorizon(cleanText);
+    if (horizon) {
+      const location = await getCurrentChannelLocation(CHANNEL, chatId);
+      let reply: string;
+      try {
+        const forecast = await getWeatherForecast(location?.latitude ?? 41.3874, location?.longitude ?? 2.1686);
+        reply = formatWeatherReply(forecast, horizon, location ? "su ubicación compartida" : "Barcelona (ubicación de referencia)");
+      } catch {
+        reply = "Señor, el servicio meteorológico no ha respondido. No tengo una previsión verificada en este momento.";
+      }
+      await deliverReply({ chatId, updateId, reply, replyToMessageId: message.message_id });
+      return json({ ok: true, directWeather: true, creditsUsed: inputMode === "text" ? false : "transcription_only" });
+    }
     if (looksLikeMemoryWriteRequest(cleanText)) {
       const history = await listRecentChannelMessages(CHANNEL, chatId, 24);
       const memoryWrite = resolveMemoryWriteRequest(cleanText, history);
@@ -474,7 +491,7 @@ export async function POST(request: Request) {
       await audit("channel_memory_searched", "Buscó directamente en la memoria privada sin IA.", { matches: matches.length });
       return json({ ok: true, directMemory: true, inputMode });
     }
-    if (inputMode === "text") {
+    if (inputMode === "text" && !noAI) {
       const currentInfoQuery = directCurrentInfoQuery(cleanText);
       if (currentInfoQuery) {
         await appendChannelMessage({
@@ -542,6 +559,10 @@ export async function POST(request: Request) {
       content: inputMode === "voice" ? `[Nota de voz transcrita] ${cleanText}` : cleanText,
       externalMessageId: `telegram:${chatId}:${message.message_id}:user`,
     });
+    if (noAI) {
+      await deliverReply({ chatId, updateId, reply: "Señor, no he utilizado IA generativa. Pruebe /sin_ia tareas pendientes, /sin_ia qué tiempo hará mañana o /sin_ia guarda en tu memoria que… Para conversación abierta, envíe el mensaje sin /sin_ia.", replyToMessageId: message.message_id });
+      return json({ ok: true, aiDisabled: true, creditsUsed: inputMode === "text" ? false : "transcription_only" });
+    }
     const history = await listRecentChannelMessages(CHANNEL, chatId);
     void sendTelegramChatAction(chatId).catch(() => undefined);
 

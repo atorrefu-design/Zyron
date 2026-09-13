@@ -1,3 +1,5 @@
+import { resolveMemoryWriteRequest, directMemoryQuery, renderMemorySearch } from "../../../lib/channels/memory-access";
+import { recordManualMemoryFact, searchMemoryBlocks } from "../../../lib/memory";
 import { NextResponse } from "next/server";
 import { AIProviderUnavailableError, type ZyronAIMessage } from "../../../lib/ai/router";
 import { runZyronAgent } from "../../../lib/agent/runtime";
@@ -20,7 +22,7 @@ function validMessages(value: unknown): ZyronAIMessage[] {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { messages?: unknown; text?: unknown; channel?: unknown; deviceLocation?: unknown };
+    const body = (await request.json()) as { messages?: unknown; text?: unknown; channel?: unknown; deviceLocation?: unknown; allowAI?: boolean };
     const messages = validMessages(body.messages);
     if (!messages.length && typeof body.text === "string" && body.text.trim()) {
       messages.push({ role: "user", content: body.text.trim().slice(0, 20_000) });
@@ -34,11 +36,22 @@ export async function POST(request: Request) {
     const currentLocation = channel === "web" || channel === "ios"
       ? webLocationObservation(body.deviceLocation as WebDeviceLocation | null)
       : null;
+    const lastIndex = messages.findLastIndex((m) => m.role === "user");
+    const memoryWrite = resolveMemoryWriteRequest(lastUserMessage, messages.slice(0, lastIndex));
+    if (memoryWrite) {
+      const block = await recordManualMemoryFact(memoryWrite.fact, { source: `zyron-${channel}-direct` });
+      return NextResponse.json({ reply: `Hecho, señor. He guardado: «${block.content}».`, tool: "memory", creditsUsed: false, memoryBlockId: block.id });
+    }
+    const memoryQuery = directMemoryQuery(lastUserMessage);
+    if (memoryQuery) {
+      const matches = await searchMemoryBlocks(memoryQuery, { limit: 5, includeAlways: false });
+      return NextResponse.json({ reply: renderMemorySearch(memoryQuery, matches), tool: "memory", creditsUsed: false });
+    }
     const weatherHorizon = weatherRequestHorizon(lastUserMessage);
     if (weatherHorizon) {
       const latitude = currentLocation?.latitude ?? 41.3874;
       const longitude = currentLocation?.longitude ?? 2.1686;
-      const locationLabel = currentLocation ? "tu ubicación actual" : "Barcelona (ubicación de referencia)";
+      const locationLabel = currentLocation ? "su ubicación actual" : "Barcelona (ubicación de referencia)";
       try {
         const forecast = await getWeatherForecast(latitude, longitude);
         return NextResponse.json({
@@ -72,6 +85,9 @@ export async function POST(request: Request) {
       });
     }
 
+    if (body.allowAI === false) {
+      return NextResponse.json({ reply: "Señor, esta petición necesita interpretación conversacional. Puede activar Conversación con IA o usar una orden directa: tareas pendientes, ponme al día, qué tiempo hará o guarda en tu memoria que…", action: "ai_disabled", creditsUsed: false });
+    }
     const result = await runZyronAgent({ messages, channel, currentLocation });
     return NextResponse.json({
       reply: result.reply,

@@ -200,3 +200,71 @@ h1 { margin: 8px 0 10px; font-size: clamp(2rem, 8vw, 3.1rem); }
   .composer button { min-height: 48px; }
   .memoryStats { grid-template-columns: 1fr; }
 }
+
+/* ZYRON command surface: decorative geometry never represents telemetry. */
+.jarvisShell { width: min(1440px,100%); padding: 24px 36px 60px; }
+.jarvisShell .header { border-bottom: 1px solid #235061; padding-bottom: 20px; }
+.jarvisShell .brand { font-weight: 300; letter-spacing: .28em; font-size: 2rem; }
+.jarvisShell .headerActions { gap: 5px; }
+.jarvisShell .headerActions .ghostButton { font-size: .74rem; border-radius: 2px; }
+.jarvisShell .commandPanel { border-radius: 3px; padding: 30px; background: linear-gradient(135deg,#071823eb,#020b12f5); }
+.jarvisShell h1 { font-size: clamp(1.8rem,4vw,3rem); font-weight: 300; letter-spacing: -.03em; }
+.hologram { position: relative; max-width: 720px; margin: 0 auto; }
+.holoSvg { width: 100%; display: block; max-height: 370px; filter: drop-shadow(0 0 8px #3fcad744); }
+.holoOuter,.holoInner { transform-origin: 300px 200px; animation: ringSpin 50s linear infinite; }
+.holoInner { animation-direction: reverse; animation-duration: 36s; }
+.state-thinking .holoOuter { animation-duration: 6s; }
+.state-speaking .holoSvg { filter: drop-shadow(0 0 18px #6de9ff); }
+.holoCaption { display: grid; text-align:center; gap: 10px; margin: -15px 0 28px; color:#cbfaff; }
+.holoCaption small { color:#668d9e; font: 10px ui-monospace,monospace; letter-spacing: .2em; }
+.jarvisShell .systemsRail { justify-content:center; }
+.jarvisShell .systemsRail i { background:#8a7049; box-shadow:none; }
+.jarvisShell .systemsRail [data-ok="true"] i { background:#58e7bd; }
+.modeToolbar { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap: 12px 22px; padding: 16px; border-block: 1px solid #173b49; font-size: .78rem; color:#b8dbe6; }
+.modeToolbar label { display:flex; align-items:center; gap:7px; }
+.modeToolbar input { accent-color:#5cddf2; width:18px; height:18px; }
+.jarvisShell .voiceBar { display:block; border:0; margin:8px 0; padding:14px; background:none; }
+.jarvisShell .arcCore { width:96px; height:96px; float:left; margin-right:24px; }
+.jarvisShell .arcCore .arcRing { display:none; }
+.jarvisShell .orb { width:66px; height:66px; }
+.jarvisShell .capabilityDeck a { border-radius:2px; background:#08233066; }
+.jarvisShell .chat { max-height:55vh; min-height:140px; }
+.jarvisShell .bubble { border-radius:2px; border-left:2px solid #298296; }
+.jarvisShell .composer { position:sticky; bottom:14px; background:#06131df5; padding:8px; border:1px solid #32687d; }
+.jarvisShell .composer input,.jarvisShell .composer button { border-radius:2px; }
+.motionOff *, .motionOff *::before, .motionOff *::after { animation:none !important; }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; scroll-behavior:auto !important; } }
+@media(max-width:700px) {
+ .jarvisShell { padding:16px 10px 40px; }
+ .jarvisShell .header { align-items:flex-start; flex-direction:column; }
+ .jarvisShell .headerActions { justify-content:flex-start; }
+ .jarvisShell .commandPanel { padding:20px 14px; }
+ .holoSvg { max-height:270px; }
+ .modeToolbar { justify-content:flex-start; padding:14px 0; }
+ .jarvisShell .commandHeader { flex-direction:column; gap:8px; }
+ .jarvisShell .systemClock { justify-items:start; }
+}
+.connectionGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:18px; margin:24px 0; }
+.connectionGrid .memoryPanel { margin:0; min-width:0; }
+.connectionGrid a { display:inline-block; margin:12px 8px 0 0; }
+.scopeList { padding-left:20px; overflow-wrap:anywhere; font-size:12px; }
+.jarvisShell .headerActions { max-width:none; }
+.jarvisShell .voiceBar::after { content:""; display:block; clear:both; }
+.jarvisShell .quickPrompts { justify-content:flex-start; }
+.jarvisShell .hologram { width:100%; }
+.jarvisShell button:focus-visible, .jarvisShell a:focus-visible { outline:2px solid #b8f6ff; outline-offset:4px; }
+@media(min-width:1050px) {
+ .jarvisShell .commandPanel { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); column-gap:36px; align-items:start; }
+ .jarvisShell .commandHeader,.jarvisShell .subtitle,.jarvisShell .systemsRail { grid-column:1 / -1; }
+ .jarvisShell .hologram { grid-column:1; grid-row:4 / 8; align-self:center; }
+ .jarvisShell .holoSvg { max-height:430px; }
+ .jarvisShell .modeToolbar { grid-column:1; grid-row:8; justify-content:flex-start; margin-top:20px; }
+ .jarvisShell .voiceBar { grid-column:2; grid-row:4; padding:12px 0; }
+ .jarvisShell .capabilityDeck { grid-column:2; grid-row:5; grid-template-columns:repeat(2,minmax(0,1fr)); margin:12px 0; }
+ .jarvisShell .quickPrompts { grid-column:2; grid-row:6; }
+ .jarvisShell .chat { grid-column:2; grid-row:7; max-height:340px; margin:20px 0; }
+ .jarvisShell .composer { grid-column:2; grid-row:8; align-self:end; }
+ .jarvisShell .note { grid-column:1 / -1; margin-top:25px; }
+}
+
+.jarvisShell .historyStatus { grid-column:1 / -1; font-size: .8rem; color:var(--muted); padding:.5rem; }

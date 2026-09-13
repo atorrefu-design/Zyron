@@ -1,3 +1,4 @@
+import { listJournal } from "../journal";
 import { createTask, listActions, listTasks, recordAction, setTaskCompleted } from "../db";
 import { getZyronHealth } from "../health";
 import { listCalendarEvents } from "../google/calendar";
@@ -63,13 +64,13 @@ export async function executeDeterministicCommand(command: DeterministicCommand)
     const tasks = (await listTasks()).filter((task) => !task.completed);
     await recordAction("tasks", "tasks_listed_direct", `Consultó ${tasks.length} tareas sin modelo de IA.`, { count: tasks.length });
     const reply = tasks.length
-      ? `Tienes ${tasks.length} tarea${tasks.length === 1 ? "" : "s"} pendiente${tasks.length === 1 ? "" : "s"}:\n${tasks.slice(0, 20).map((task, index) => `${index + 1}. ${task.title}${task.due_at ? ` · ${madridDate(task.due_at)}` : ""}`).join("\n")}`
-      : "No tienes tareas pendientes.";
+      ? `Tiene ${tasks.length} tarea${tasks.length === 1 ? "" : "s"} pendiente${tasks.length === 1 ? "" : "s"}:\n${tasks.slice(0, 20).map((task, index) => `${index + 1}. ${task.title}${task.due_at ? ` · ${madridDate(task.due_at)}` : ""}`).join("\n")}`
+      : "No tiene tareas pendientes.";
     return { handled: true, reply, action: "tasks_listed_direct", tool: "tasks", creditsUsed: false, data: tasks };
   }
 
   if (command.type === "task_create") {
-    if (!command.query) return { handled: true, reply: "Escribe /tarea seguido de lo que quieres apuntar.", action: "task_input_required", tool: "tasks", creditsUsed: false };
+    if (!command.query) return { handled: true, reply: "Escribe /tarea seguido de lo que desea apuntar.", action: "task_input_required", tool: "tasks", creditsUsed: false };
     const task = await createTask(command.query, null);
     await recordAction("tasks", "task_created_direct", `Creó la tarea “${task.title}” sin modelo de IA.`, { taskId: task.id });
     return { handled: true, reply: `Hecho. He creado la tarea “${task.title}”.`, action: "task_created_direct", tool: "tasks", creditsUsed: false, data: task };
@@ -80,7 +81,7 @@ export async function executeDeterministicCommand(command: DeterministicCommand)
     const matches = (await listTasks()).filter((task) => !task.completed && taskMatches(command.query, task.title));
     if (matches.length !== 1) {
       const reply = matches.length
-        ? `He encontrado varias tareas parecidas:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}\nIndica el nombre exacto.`
+        ? `He encontrado varias tareas parecidas:\n${matches.slice(0, 6).map((task, index) => `${index + 1}. ${task.title}`).join("\n")}\nIndique el nombre exacto.`
         : `No encuentro una tarea pendiente que encaje con “${command.query}”.`;
       return { handled: true, reply, action: matches.length ? "task_completion_ambiguous" : "task_not_found", tool: "tasks", creditsUsed: false, data: matches };
     }
@@ -107,7 +108,7 @@ export async function executeDeterministicCommand(command: DeterministicCommand)
   const health = await getZyronHealth();
   const labels: Record<string, string> = { openai: "OpenAI", aiGateway: "AI Gateway", database: "Base de datos", memory: "Memoria", maps: "Google Maps", ownerKey: "Acceso privado", authSecret: "Sesión segura" };
   const lines = Object.entries(health.checks).map(([name, check]) => {
-    const state = !check.configured ? "no configurado" : check.reachable === false ? "con incidencia" : "disponible";
+    const state = !check.configured ? "no configurado" : check.reachable === false ? "con incidencia" : check.reachable === true ? "verificado" : "configurado, sin comprobar";
     return `• ${labels[name] || name}: ${state}${check.latencyMs !== null ? ` · ${check.latencyMs} ms` : ""}`;
   });
   const reply = [`Diagnóstico de ZYRON: ${health.ok ? "núcleo operativo" : "requiere revisión"}.`, ...lines, "", "Comprobación directa, sin modelo de IA."].join("\n");
@@ -115,6 +116,14 @@ export async function executeDeterministicCommand(command: DeterministicCommand)
 }
 
 export async function runDeterministicCommand(text: string) {
+  const history = text.trim().match(/^(?:historial|busca en (?:el )?historial)(?:\s*[: ]\s*([\s\S]*))?$/i);
+  if (history) {
+    try {
+      const entries = (await listJournal(history[1]?.trim() || "")).slice(0,6);
+      return {handled:true,action:"history_read_direct",tool:"history",creditsUsed:false,
+        reply:entries.length ? entries.map(e=>`${e.channel} · ${e.role === "user" ? "Usted" : "Zyron"} · ${madridDate(e.occurredAt)}: ${e.content.slice(0,1200)}`).join("\n\n") : "No encuentro conversaciones guardadas para esa búsqueda."} satisfies DeterministicResult;
+    } catch { return {handled:true,action:"history_unavailable",tool:"history",creditsUsed:false,reply:"El historial no está disponible ahora mismo."} satisfies DeterministicResult; }
+  }
   const command = resolveDeterministicCommand(text);
   if (!command) return null;
   try {

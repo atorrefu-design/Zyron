@@ -32,7 +32,23 @@ export default function MemoryPage() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [editing, setEditing] = useState<SearchBlock | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<SearchBlock[]>([]);
+
+  async function saveEdit() {
+    if (!editing || saving) return;
+    setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/memory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editing.id, expectedContent: editing.content, content: draft }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setResults((rows) => rows.map((row) => row.id === editing.id ? { ...row, content: data.block.content } : row));
+      setEditing(null); setMessage("Memoria actualizada. El cambio está disponible para todos los canales.");
+    } catch (e) { setError(e instanceof Error ? e.message : "No se pudo guardar"); }
+    finally { setSaving(false); }
+  }
 
   const loadStatus = useCallback(async () => {
     try {
@@ -141,7 +157,7 @@ export default function MemoryPage() {
           <div className="memoryCardHeader"><h2>Probar recuperación</h2><a className="ghostButton navLink" href="/api/memory/export">Exportar JSON</a></div>
           <p>Comprueba qué información encontrará ZYRON antes de preguntársela en el chat.</p>
           <form className="memorySearch" onSubmit={search}>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ej.: ¿A qué hora suelo llegar al trabajo?" />
+            <input aria-label="Buscar recuerdos" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ej.: ¿A qué hora suelo llegar al trabajo?" />
             <button type="submit" disabled={!query.trim() || searching}>{searching ? "Buscando…" : "Buscar"}</button>
           </form>
           <div className="memoryResults" aria-live="polite">
@@ -149,6 +165,7 @@ export default function MemoryPage() {
               <article key={block.id}>
                 <strong>{block.heading}</strong>
                 <span>{block.section_path}</span>
+                <button className="ghostButton" onClick={() => { setEditing(block); setDraft(block.content); }}>Editar recuerdo</button>
                 <p>{block.content.length > 520 ? `${block.content.slice(0, 520)}…` : block.content}</p>
               </article>
             ))}
@@ -156,6 +173,12 @@ export default function MemoryPage() {
           </div>
         </section>
 
+        {editing && <section className="memoryCard" aria-label="Editar memoria">
+          <h2>Editar recuerdo</h2>
+          <textarea aria-label="Contenido del recuerdo" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={8000} rows={8} style={{ width: "100%", background: "#07151d", color: "white", padding: 16 }} />
+          <button className="ghostButton" disabled={saving || !draft.trim()} onClick={() => void saveEdit()}>{saving ? "Guardando…" : "Guardar cambios"}</button>
+          <button className="ghostButton" disabled={saving} onClick={() => setEditing(null)}>Cancelar</button>
+        </section>}
         <section className="memoryCard">
           <h2>Fuentes cargadas</h2>
           {!status?.documents.length && <div className="taskEmpty">La memoria aún está vacía.</div>}

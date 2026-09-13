@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   deleteMemoryBlock,
+  updateMemoryContent,
   getMemoryStats,
   listMemoryDocuments,
   recordManualMemoryFact,
@@ -49,5 +50,20 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error("ZYRON_MEMORY_DELETE_ERROR", error);
     return NextResponse.json({ error: "No se ha podido eliminar el bloque de memoria" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    if (typeof body.id !== "string" || typeof body.content !== "string" || typeof body.expectedContent !== "string") {
+      return NextResponse.json({ error: "Faltan identificador, contenido y versión anterior." }, { status: 400 });
+    }
+    if (!body.content.trim() || body.content.length > 8000) return NextResponse.json({ error: "Contenido vacío o demasiado largo." }, { status: 400 });
+    const block = await updateMemoryContent(body.id, body.expectedContent, body.content);
+    if (!block) return NextResponse.json({ error: "El recuerdo ha cambiado o ya no existe. Vuelva a buscarlo antes de editar." }, { status: 409 });
+    return NextResponse.json({ ok: true, block });
+  } catch {
+    return NextResponse.json({ error: "No se ha podido modificar la memoria." }, { status: 500 });
   }
 }

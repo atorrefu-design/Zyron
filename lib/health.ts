@@ -122,7 +122,7 @@ export async function getZyronHealth(): Promise<ZyronHealth> {
     authSecret: { configured: Boolean(process.env.ZYRON_AUTH_SECRET), reachable: null, latencyMs: null },
   } satisfies Record<string, CheckResult>;
 
-  const required = [checks.openai, checks.database, checks.memory, checks.ownerKey, checks.authSecret];
+  const required = [checks.database, checks.memory, checks.ownerKey, checks.authSecret];
   const ok = required.every((check) => check.configured && check.reachable !== false);
-  return { ok, service: "zyron-core", version: "0.23.0", checks, time: new Date().toISOString() };
+  return { ok, service: "zyron-core", version: "0.27.0", checks, time: new Date().toISOString() };
 }
