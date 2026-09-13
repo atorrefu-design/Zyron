@@ -19,26 +19,19 @@ final class ZyronAppController: ObservableObject {
     private static let vehicleModeIntentKey = "zyron.intent.vehicle-mode"
 
     private let apiClient: NativeAPIClient
-    private let locationProvider: NativeLocationProvider
-    private var runtime: ZyronVoiceRuntime
+    private lazy var locationProvider = NativeLocationProvider()
+    private lazy var runtime = NativeVoiceBootstrap.makeManualRuntime(apiClient: apiClient)
+    private var runtimeBound = false
     private var cancellables = Set<AnyCancellable>()
     private var didRestore = false
 
     init(apiClient: NativeAPIClient = .shared) {
         self.apiClient = apiClient
-        self.locationProvider = NativeLocationProvider()
-        self.runtime = NativeVoiceBootstrap.makeManualRuntime(apiClient: apiClient)
-        self.isAuthenticated = apiClient.hasOwnerSession
-        self.hasStoredPicovoiceKey = KeychainStore.picovoiceAccessKey() != nil
-        self.statusMessage = apiClient.hasOwnerSession
-            ? "Companion preparado. Comprobando el núcleo cloud…"
-            : "Conecta este iPhone con el núcleo privado de ZYRON."
+        self.isAuthenticated = false
+        self.hasStoredPicovoiceKey = false
+        self.statusMessage = "Iniciando ZYRON…"
+        print("ZYRON_CONTROLLER_CREATED")
 
-        bindRuntime()
-        RealtimeToolRouter.shared.deviceLocationProvider = { [weak self] in
-            guard let self else { return nil }
-            return await self.locationProvider.currentLocation()
-        }
     }
 
     var webAppURL: URL { apiClient.baseURL }
@@ -63,6 +56,9 @@ final class ZyronAppController: ObservableObject {
     func restore() async {
         guard !didRestore else { return }
         didRestore = true
+        print("ZYRON_RESTORE_STARTED")
+        isAuthenticated = apiClient.hasOwnerSession
+        hasStoredPicovoiceKey = KeychainStore.picovoiceAccessKey() != nil
         let shouldStartVoice = UserDefaults.standard.bool(forKey: Self.startVoiceIntentKey)
         let shouldStartVehicleMode = UserDefaults.standard.bool(forKey: Self.vehicleModeIntentKey)
         if shouldStartVoice {
@@ -201,10 +197,12 @@ final class ZyronAppController: ObservableObject {
         }
 
         statusMessage = "Conectando conversación Realtime…"
+        prepareRuntimeIfNeeded()
         runtime.startManualConversation(command: command)
     }
 
     func stopConversation() {
+        guard runtimeBound else { return }
         runtime.stopConversation()
         statusMessage = isAlwaysOnEnabled
             ? "Conversación cerrada. Vuelvo a escuchar «ZYRON»."
@@ -251,7 +249,7 @@ final class ZyronAppController: ObservableObject {
     }
 
     func disableAlwaysOn() {
-        runtime.stopAlwaysOn()
+        if runtimeBound { runtime.stopAlwaysOn() }
         isAlwaysOnEnabled = false
         UserDefaults.standard.set(false, forKey: Self.alwaysOnPreferenceKey)
         replaceRuntime(with: NativeVoiceBootstrap.makeManualRuntime(apiClient: apiClient))
@@ -259,7 +257,7 @@ final class ZyronAppController: ObservableObject {
     }
 
     func logout() {
-        runtime.stopAlwaysOn()
+        if runtimeBound { runtime.stopAlwaysOn() }
         apiClient.logout()
         KeychainStore.clearPicovoiceAccessKey()
         UserDefaults.standard.set(false, forKey: Self.alwaysOnPreferenceKey)
@@ -284,13 +282,23 @@ final class ZyronAppController: ObservableObject {
     }
 
     private func replaceRuntime(with replacement: ZyronVoiceRuntime) {
-        runtime.stopAlwaysOn()
+        if runtimeBound { runtime.stopAlwaysOn() }
         cancellables.removeAll()
         runtime = replacement
         bindRuntime()
     }
 
+    private func prepareRuntimeIfNeeded() {
+        guard !runtimeBound else { return }
+        bindRuntime()
+    }
+
     private func bindRuntime() {
+        runtimeBound = true
+        RealtimeToolRouter.shared.deviceLocationProvider = { [weak self] in
+            guard let self else { return nil }
+            return await self.locationProvider.currentLocation()
+        }
         runtimeState = runtime.state
         responseMode = runtime.responseMode
         latestText = runtime.latestText

@@ -124,6 +124,7 @@ final class NativeAPIClient {
         var request = try authenticatedRequest(path: "/api/health")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let http = try validatedHTTP(response)
