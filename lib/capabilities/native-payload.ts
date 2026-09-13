@@ -1,3 +1,5 @@
+import { resolvePersonalPlaceAddress } from "../personal-places.ts";
+
 export type NativePayload = Record<string, string>;
 
 function normalize(value: string) {
@@ -176,8 +178,15 @@ export function buildNativePayload(action: string, input: string): NativePayload
       const destination = extractDestination(input);
       if (!destination) return {};
       const normalized = normalize(destination);
-      if (["casa", "mi casa", "hogar"].includes(normalized)) return { destination, personalPlace: "home" };
-      if (["trabajo", "mi trabajo", "oficina", "la oficina"].includes(normalized)) return { destination, personalPlace: "work" };
+      // "casa"/"trabajo" se resuelven aquí mismo a la dirección real de Aarón:
+      // el iPhone recibe ya una dirección concreta, sin depender de una ficha
+      // de Contactos que nunca llegó a configurarse para esto.
+      if (["casa", "mi casa", "hogar"].includes(normalized)) {
+        return { destination: resolvePersonalPlaceAddress("home") ?? destination };
+      }
+      if (["trabajo", "mi trabajo", "oficina", "la oficina"].includes(normalized)) {
+        return { destination: resolvePersonalPlaceAddress("work") ?? destination };
+      }
       if (["eso", "esa ubicacion", "esa ubicación", "el resultado"].includes(normalized)) return { destination: "{{last.value}}" };
       return { destination };
     }

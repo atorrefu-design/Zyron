@@ -33,16 +33,31 @@ final class RealtimeToolRouter {
         do {
             switch call.name {
             case "iniciar_navegacion_google_maps":
+                // El modo coche no debe ser un atajo aparte sin memoria: se pasa
+                // por el mismo núcleo (/api/act) que resuelve alias personales
+                // ("trabajo", "casa") igual que en una conversación normal con ZYRON.
+                let phrase = "Llévame a \(query)"
+                let directive = try await NativeAPIClient.shared.resolveNativeAction(
+                    phrase,
+                    deviceLocation: location
+                )
+                guard directive.mode == "native_execute", let action = directive.action else {
+                    let detail = directive.message ?? directive.reply ?? directive.error ?? "No he podido iniciar la navegación."
+                    return RealtimeToolOutput(callID: call.callID, output: detail)
+                }
                 let envelope = NativeActionEnvelope(
-                    action: "navigation.google_maps.start",
-                    input: query,
-                    capabilityId: "maps.navigation.google",
-                    payload: ["destination": query]
+                    action: action,
+                    input: directive.input ?? query,
+                    capabilityId: directive.capabilityId,
+                    payload: directive.payload
                 )
                 let result = await NativeActionDispatcher.shared.execute(envelope)
+                guard result.handled else {
+                    return RealtimeToolOutput(callID: call.callID, output: "El companion todavía no reconoce esta acción de navegación.")
+                }
                 return RealtimeToolOutput(
                     callID: call.callID,
-                    output: result.reply ?? (result.succeeded ? "Google Maps abierto con la ruta preparada." : "No he podido abrir Google Maps.")
+                    output: result.reply ?? (result.succeeded ? "Navegación iniciada." : "No he podido abrir la navegación.")
                 )
 
             case "consultar_nucleo_zyron":
@@ -94,6 +109,7 @@ final class RealtimeToolRouter {
             let prefix: String
             if call.name == "buscar_lugares_reales" { prefix = "No he podido buscar lugares reales" }
             else if call.name == "ejecutar_accion_iphone" { prefix = "No he podido preparar la acción en el iPhone" }
+            else if call.name == "iniciar_navegacion_google_maps" { prefix = "No he podido preparar la navegación" }
             else { prefix = "No he podido consultar el núcleo privado" }
             return RealtimeToolOutput(
                 callID: call.callID,
